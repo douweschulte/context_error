@@ -11,6 +11,7 @@ pub struct Context<'text> {
     line_index: Option<usize>,
     /// Offset of the first line (in characters) before the slice starts
     first_line_offset: usize,
+    /// The text of this context, multiline text is handled by [str::lines]
     lines: Cow<'text, str>,
     /// The highlights, required to be sorted by line first, offset second
     highlights: Vec<Highlight<'text>>,
@@ -142,6 +143,52 @@ impl<'text> Context<'text> {
         }
     }
 
+    /// Create a context with multiple highlights
+    pub fn multiple_highlights(
+        line_index: Option<usize>,
+        lines: &'text str,
+        highlights: impl IntoIterator<Item = (usize, impl RangeBounds<usize>, Option<Cow<'text, str>>)>,
+    ) -> Self {
+        let lengths = lines.lines().map(|l| l.chars().count()).collect::<Vec<_>>();
+        Self {
+            line_index,
+            lines: lines.into(),
+            first_line_offset: 0,
+            // TODO: sort highlights (could this be the place to do placement optimisation?)
+            highlights: highlights
+                .into_iter()
+                .map(
+                    |(line, range, comment)| match (range.start_bound(), range.end_bound()) {
+                        (Bound::Unbounded, Bound::Unbounded) => Highlight {
+                            line,
+                            offset: 0,
+                            length: lengths[line],
+                            comment,
+                        },
+                        (start, end) => {
+                            let start = match start {
+                                Bound::Excluded(n) => n + 1,
+                                Bound::Included(n) => *n,
+                                Bound::Unbounded => 0,
+                            };
+                            Highlight {
+                                line,
+                                offset: start,
+                                length: match end {
+                                    Bound::Excluded(n) => n - 1,
+                                    Bound::Included(n) => *n,
+                                    Bound::Unbounded => lengths[line],
+                                }
+                                .saturating_sub(start),
+                                comment,
+                            }
+                        }
+                    },
+                )
+                .collect(),
+        }
+    }
+
     /// Creates a new context to highlight a certain position
     #[expect(clippy::unwrap_used, clippy::missing_panics_doc)]
     pub fn position(pos: &FilePosition<'_>) -> Self {
@@ -221,7 +268,7 @@ impl<'text> Context<'text> {
     /// If the underlying formatter errors.
     fn display(&self, f: &mut fmt::Formatter<'_>, note: Option<&str>) -> fmt::Result {
         const MAX_COLS: usize = 95; // TODO: clip lines if too ling
-        const HIGHLIGHT_START_LINE: &str = " · ";
+        const HIGHLIGHT_START_LINE: &str = " ╎ ";
 
         if self.is_empty() {
             return Ok(());
@@ -241,12 +288,14 @@ impl<'text> Context<'text> {
         let mut highlights_peek = self.highlights.iter().peekable();
 
         for (index, line) in self.lines.lines().enumerate() {
+            // let highlights = highlights_peek.
             write!(
                 f,
                 "\n{:<margin$} │ ",
                 self.line_index
                     .map_or(String::new(), |n| (n + index + 1).to_string()),
             )?;
+            // TODO: get highlights to check if the line can be truncated
             for c in line.chars() {
                 write!(
                     f,
@@ -340,11 +389,15 @@ mod tests {
     test!(full_line: Context::full_line(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
         => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╵");
     test!(line: Context::line(Some(0), "#[derive(Clone, Copy, Debug, Eq, PartialEq)]", 16, 4) 
-        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ·                 ────\n  ╵");
+        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╎                 ────\n  ╵");
     test!(line_range: Context::line_range(Some(0), "\tpub column; usize,", 11..13) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─\n  ╵");
     test!(line_range_comment: Context::line_range_with_comment(Some(0), "\tpub column; usize,", 11..13, Some(Cow::Borrowed("Use colon instead"))) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─ Use colon instead\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─ Use colon instead\n  ╵");
     test!(line_comment: Context::line_with_comment(Some(0), "\tpub column; usize,", 11, 1, Some(Cow::Borrowed("Use colon instead"))) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─ Use colon instead\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─ Use colon instead\n  ╵");
+    test!(single_line_multiple_highlights: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, None), (0, 4..=8, None), (0, 9..=13, None)]) 
+        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── ──── ────\n  ╵");
+    test!(single_line_multiple_highlights_comments: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, Some(Cow::Borrowed("Score"))), (0, 4..=8, Some(Cow::Borrowed("RT"))), (0, 9..=13, Some(Cow::Borrowed("Method")))]) 
+        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── Score\n  ╎     ──── RT\n  ╎          ──── Method\n  ╵");
 }
