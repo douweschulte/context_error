@@ -189,9 +189,14 @@ impl fmt::Debug for CustomError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{}: {}{}\n{}",
+            "{}: {}{}{}\n{}",
             self.level(),
             self.content.short_description,
+            if self.content.context.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
             self.content.context,
             self.content.long_description
         )?;
@@ -242,7 +247,6 @@ impl fmt::Display for CustomError<'_> {
 impl error::Error for CustomError<'_> {}
 
 #[cfg(test)]
-#[expect(clippy::print_stdout)]
 mod tests {
     use super::*;
     use crate::FilePosition;

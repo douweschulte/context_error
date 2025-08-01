@@ -202,6 +202,11 @@ impl<'text> Context<'text> {
         }
     }
 
+    /// Check if this is an empty context
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+
     /// Overwrite the line number with the given number, if applicable
     #[must_use]
     pub fn overwrite_line_number(self, line_index: usize) -> Self {
@@ -218,7 +223,7 @@ impl<'text> Context<'text> {
         const MAX_COLS: usize = 95; // TODO: clip lines if too ling
         const HIGHLIGHT_START_LINE: &str = " · ";
 
-        if self.lines.is_empty() {
+        if self.is_empty() {
             return Ok(());
         }
 
@@ -232,16 +237,27 @@ impl<'text> Context<'text> {
             .line_index
             .map_or(0, |n| get_margin(n + self.lines.lines().count()));
 
-        write!(f, "\n{} ╷", " ".repeat(margin))?;
+        write!(f, "{} ╷", " ".repeat(margin))?;
         let mut highlights_peek = self.highlights.iter().peekable();
 
         for (index, line) in self.lines.lines().enumerate() {
             write!(
                 f,
-                "\n{:<margin$} │ {line}",
+                "\n{:<margin$} │ ",
                 self.line_index
-                    .map_or(String::new(), |n| (n + index + 1).to_string())
+                    .map_or(String::new(), |n| (n + index + 1).to_string()),
             )?;
+            for c in line.chars() {
+                write!(
+                    f,
+                    "{}",
+                    match c {
+                        c if c as u32 <= 31 => char::try_from(c as u32 + 0x2400).unwrap(),
+                        '\u{007F}' => '␡',
+                        c => c,
+                    }
+                )?;
+            }
             let mut last_offset = 0;
             while let Some(high) = highlights_peek.peek() {
                 if high.line > index {
@@ -265,13 +281,15 @@ impl<'text> Context<'text> {
                         if high.length == 0 {
                             "└".to_string()
                         } else {
-                            "‾".repeat(high.length)
+                            "─".repeat(high.length)
                         },
-                        high.comment.as_deref().unwrap_or(""),
+                        high.comment
+                            .as_deref()
+                            .map_or(String::new(), |c| format!(" {c}")), //Maybe one of: ╸·
                     )?;
                     last_offset = high.offset
                         + high.length.max(1)
-                        + high.comment.as_ref().map_or(0, |c| c.chars().count());
+                        + high.comment.as_ref().map_or(0, |c| 1 + c.chars().count());
                 }
             }
         }
@@ -299,4 +317,34 @@ pub struct FilePosition<'a> {
     pub line_index: usize,
     /// The current column number
     pub column: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! test {
+        ($name:ident: $context:expr => $expected:expr) => {
+            #[test]
+            fn $name() {
+                let context = $context;
+                println!("{context}");
+                assert_eq!(context.to_string(), $expected);
+            }
+        };
+    }
+
+    test!(empty: Context::none() => "");
+    test!(show: Context::show("Hello world") => " ╷\n │ Hello world\n ╵");
+    test!(show_characters: Context::show("Hello world cr\r tab\t null\0") => " ╷\n │ Hello world cr␍ tab␉ null␀\n ╵");
+    test!(full_line: Context::full_line(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
+        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╵");
+    test!(line: Context::line(Some(0), "#[derive(Clone, Copy, Debug, Eq, PartialEq)]", 16, 4) 
+        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ·                 ────\n  ╵");
+    test!(line_range: Context::line_range(Some(0), "\tpub column; usize,", 11..13) 
+        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─\n  ╵");
+    test!(line_range_comment: Context::line_range_with_comment(Some(0), "\tpub column; usize,", 11..13, Some(Cow::Borrowed("Use colon instead"))) 
+        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─ Use colon instead\n  ╵");
+    test!(line_comment: Context::line_with_comment(Some(0), "\tpub column; usize,", 11, 1, Some(Cow::Borrowed("Use colon instead"))) 
+        => "  ╷\n1 │ ␉pub column; usize,\n  ·            ─ Use colon instead\n  ╵");
 }
