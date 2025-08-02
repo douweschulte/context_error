@@ -5,8 +5,10 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Context<'text> {
+    /// The source or path of the text
+    source: Option<Cow<'text, str>>,
     /// 0 based index of the first line
     line_index: Option<usize>,
     /// Offset of the first line (in characters) before the slice starts
@@ -29,20 +31,84 @@ pub struct Highlight<'text> {
     comment: Option<Cow<'text, str>>,
 }
 
+impl From<(usize, usize, usize)> for Highlight<'static> {
+    fn from(value: (usize, usize, usize)) -> Self {
+        Self {
+            line: value.0,
+            offset: value.1,
+            length: value.2,
+            comment: None,
+        }
+    }
+}
+
+impl<'text, Comment: Into<Cow<'text, str>>> From<(usize, usize, usize, Comment)>
+    for Highlight<'text>
+{
+    fn from(value: (usize, usize, usize, Comment)) -> Self {
+        Self {
+            line: value.0,
+            offset: value.1,
+            length: value.2,
+            comment: Some(value.3.into()),
+        }
+    }
+}
+
+impl<'text, Range: RangeBounds<usize>> From<(usize, Range)> for Highlight<'text> {
+    fn from(value: (usize, Range)) -> Self {
+        let offset = match value.1.start_bound() {
+            Bound::Excluded(n) => n + 1,
+            Bound::Included(n) => *n,
+            Bound::Unbounded => 0,
+        };
+        Self {
+            line: value.0,
+            offset,
+            length: match value.1.end_bound() {
+                Bound::Excluded(n) => n - offset,
+                Bound::Included(n) => n - offset + 1,
+                Bound::Unbounded => usize::MAX,
+            },
+            comment: None,
+        }
+    }
+}
+
+// TODO: used u32 here because otherwise this overlaps with the `(usize, usize, usize)` option
+impl<'text, Range: RangeBounds<usize>, Comment: Into<Cow<'text, str>>> From<(u32, Range, Comment)>
+    for Highlight<'text>
+{
+    fn from(value: (u32, Range, Comment)) -> Self {
+        let offset = match value.1.start_bound() {
+            Bound::Excluded(n) => n + 1,
+            Bound::Included(n) => *n,
+            Bound::Unbounded => 0,
+        };
+        Self {
+            line: value.0 as usize,
+            offset,
+            length: match value.1.end_bound() {
+                Bound::Excluded(n) => n - offset,
+                Bound::Included(n) => n - offset + 1,
+                Bound::Unbounded => usize::MAX,
+            },
+            comment: Some(value.2.into()),
+        }
+    }
+}
+
+/// Convenience wrappers using common patterns
 impl<'text> Context<'text> {
     /// Creates a new context when no context can be given
-    pub const fn none() -> Self {
-        Self {
-            first_line_offset: 0,
-            line_index: None,
-            lines: Cow::Borrowed(""),
-            highlights: Vec::new(),
-        }
+    pub fn none() -> Self {
+        Self::default()
     }
 
     /// Creates a new context when only a line (eg filename) can be shown
     pub fn show(line: impl Into<Cow<'text, str>>) -> Self {
         Self {
+            source: None,
             first_line_offset: 0,
             line_index: None,
             lines: line.into(),
@@ -53,6 +119,7 @@ impl<'text> Context<'text> {
     /// Creates a new context when a full line is faulty and no special position can be annotated
     pub fn full_line(line_index: usize, line: impl Into<Cow<'text, str>>) -> Self {
         Self {
+            source: None,
             first_line_offset: 0,
             line_index: Some(line_index),
             lines: line.into(),
@@ -68,6 +135,7 @@ impl<'text> Context<'text> {
         length: usize,
     ) -> Self {
         Self {
+            source: None,
             first_line_offset: 0,
             line_index,
             lines: line.into(),
@@ -89,6 +157,7 @@ impl<'text> Context<'text> {
         comment: Option<Cow<'text, str>>,
     ) -> Self {
         Self {
+            source: None,
             first_line_offset: 0,
             line_index,
             lines: line.into(),
@@ -151,6 +220,7 @@ impl<'text> Context<'text> {
     ) -> Self {
         let lengths = lines.lines().map(|l| l.chars().count()).collect::<Vec<_>>();
         Self {
+            source: None,
             line_index,
             lines: lines.into(),
             first_line_offset: 0,
@@ -194,6 +264,7 @@ impl<'text> Context<'text> {
     pub fn position(pos: &FilePosition<'_>) -> Self {
         if pos.text.is_empty() {
             Self {
+                source: None,
                 line_index: Some(pos.line_index),
                 first_line_offset: 0,
                 lines: Cow::Borrowed(""),
@@ -206,6 +277,7 @@ impl<'text> Context<'text> {
             }
         } else {
             Self {
+                source: None,
                 line_index: Some(pos.line_index),
                 first_line_offset: 0,
                 lines: Cow::Owned(pos.text.lines().next().unwrap().to_string()),
@@ -223,6 +295,7 @@ impl<'text> Context<'text> {
     pub fn range(start: &FilePosition<'text>, end: &FilePosition<'text>) -> Self {
         if start.line_index == end.line_index {
             Self {
+                source: None,
                 line_index: Some(start.line_index),
                 first_line_offset: start.column,
                 lines: Cow::Borrowed(&start.text[..(end.column - start.column)]),
@@ -235,6 +308,7 @@ impl<'text> Context<'text> {
             }
         } else {
             Self {
+                source: None,
                 line_index: Some(start.line_index),
                 first_line_offset: start.column,
                 lines: Cow::Borrowed(
@@ -248,19 +322,52 @@ impl<'text> Context<'text> {
             }
         }
     }
+}
 
-    /// Check if this is an empty context
-    pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
+/// Builder style methods
+impl<'text> Context<'text> {
+    /// Set the source
+    #[must_use]
+    pub fn source(self, source: impl Into<Cow<'text, str>>) -> Self {
+        Self {
+            source: Some(source.into()),
+            ..self
+        }
     }
 
-    /// Overwrite the line number with the given number, if applicable
+    /// Set the line index
     #[must_use]
-    pub fn overwrite_line_number(self, line_index: usize) -> Self {
+    pub fn line_index(self, line_index: usize) -> Self {
         Self {
             line_index: Some(line_index),
             ..self
         }
+    }
+
+    /// Set the lines together with the offset of the first line (in characters)
+    #[must_use]
+    pub fn lines(self, first_line_offset: usize, lines: impl Into<Cow<'text, str>>) -> Self {
+        Self {
+            first_line_offset,
+            lines: lines.into(),
+            ..self
+        }
+    }
+
+    /// Add a highlight
+    #[must_use]
+    pub fn add_highlight(mut self, highlight: impl Into<Highlight<'text>>) -> Self {
+        // TODO: keep sorted
+        self.highlights.push(highlight.into());
+        self
+    }
+}
+
+/// Functionality
+impl<'text> Context<'text> {
+    /// Check if this is an empty context
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
     }
 
     /// Display this context, with an optional note after the context.
@@ -284,17 +391,37 @@ impl<'text> Context<'text> {
             .line_index
             .map_or(0, |n| get_margin(n + self.lines.lines().count()));
 
-        write!(f, "{} ╷", " ".repeat(margin))?;
+        if let Some(source) = &self.source {
+            write!(
+                f,
+                "{} ╭─[{source}{}{}]",
+                " ".repeat(margin),
+                self.line_index
+                    .map(|i| format!(":{}", i + 1))
+                    .unwrap_or_default(),
+                self.highlights
+                    .first()
+                    .filter(|h| h.line == 0 && self.highlights.len() == 1)
+                    .map(|h| format!(":{}", self.first_line_offset + h.offset + 1))
+                    .unwrap_or_default() // TODO: think about a different symbol to denote columns as right now :x could be either column or line depending on which one is given
+            )?;
+        } else {
+            write!(f, "{} ╷", " ".repeat(margin))?;
+        }
         let mut highlights_peek = self.highlights.iter().peekable();
 
         for (index, line) in self.lines.lines().enumerate() {
-            // let highlights = highlights_peek.
+            let front_trimmed = index == 0 && self.first_line_offset > 0;
             write!(
                 f,
                 "\n{:<margin$} │ ",
                 self.line_index
                     .map_or(String::new(), |n| (n + index + 1).to_string()),
             )?;
+            if front_trimmed {
+                write!(f, "…")?;
+            }
+            let mut line_length = 0;
             // TODO: get highlights to check if the line can be truncated
             for c in line.chars() {
                 write!(
@@ -306,6 +433,7 @@ impl<'text> Context<'text> {
                         c => c,
                     }
                 )?;
+                line_length += 1;
             }
             let mut last_offset = 0;
             while let Some(high) = highlights_peek.peek() {
@@ -320,7 +448,11 @@ impl<'text> Context<'text> {
                         start = String::new();
                         start_offset = last_offset;
                     } else {
-                        start = format!("\n{}{HIGHLIGHT_START_LINE}", " ".repeat(margin));
+                        start = format!(
+                            "\n{}{HIGHLIGHT_START_LINE}{}",
+                            " ".repeat(margin),
+                            " ".repeat(usize::from(front_trimmed))
+                        );
                         start_offset = 0;
                     }
                     write!(
@@ -328,23 +460,23 @@ impl<'text> Context<'text> {
                         "{start}{}{}{}",
                         " ".repeat(high.offset - start_offset),
                         if high.length == 0 {
-                            "└".to_string()
+                            "⏵".to_string()
                         } else {
-                            "─".repeat(high.length)
+                            "─".repeat(high.length.min(line_length - high.offset))
                         },
                         high.comment
                             .as_deref()
                             .map_or(String::new(), |c| format!(" {c}")), //Maybe one of: ╸·
                     )?;
                     last_offset = high.offset
-                        + high.length.max(1)
+                        + high.length.max(1).min(line_length - high.offset)
                         + high.comment.as_ref().map_or(0, |c| 1 + c.chars().count());
                 }
             }
         }
         // Last line
         if let Some(note) = note {
-            write!(f, "\n{:pad$} ╰{}", "", note, pad = margin)
+            write!(f, "\n{:pad$} ╰─[{}]", "", note, pad = margin)
         } else {
             write!(f, "\n{:pad$} ╵", "", pad = margin)
         }
@@ -377,8 +509,10 @@ mod tests {
             #[test]
             fn $name() {
                 let context = $context;
-                println!("{context}");
-                assert_eq!(context.to_string(), $expected);
+                let string = context.to_string();
+                if string != $expected {
+                    panic!("Generated context:\n{}\nNot identical to expected:\n{}\nThis is the generated if this actually is correct: {0:?}", string, $expected);
+                }
             }
         };
     }
@@ -400,4 +534,12 @@ mod tests {
         => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── ──── ────\n  ╵");
     test!(single_line_multiple_highlights_comments: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, Some(Cow::Borrowed("Score"))), (0, 4..=8, Some(Cow::Borrowed("RT"))), (0, 9..=13, Some(Cow::Borrowed("Method")))]) 
         => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── Score\n  ╎     ──── RT\n  ╎          ──── Method\n  ╵");
+    test!(builder: Context::default().lines(0, "Hello world").add_highlight((0, 1, 2)).add_highlight((0, 6.., "Rest")) 
+        => " ╷\n │ Hello world\n ╎  ──   ───── Rest\n ╵");
+    test!(builder_source: Context::default().source("path/file.txt").lines(1, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
+        => " ╭─[path/file.txt]\n │ …ello world\n ╎  ──   ───── Rest\n ╵");
+    test!(builder_source_line: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
+        => "  ╭─[path/file.txt:3]\n3 │ …ello world\n  ╎  ──   ───── Rest\n  ╵");
+    test!(builder_source_line_offset: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)) 
+        => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ──\n  ╵");
 }

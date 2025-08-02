@@ -166,14 +166,10 @@ impl<'text> CustomError<'text> {
 
     /// Overwrite the line number with the given number, if applicable
     #[must_use]
-    pub fn overwrite_line_number(self, line_number: usize) -> Self {
+    pub fn overwrite_line_index(self, line_index: usize) -> Self {
         Self {
             content: Box::new(InnerError {
-                context: self
-                    .content
-                    .context
-                    .clone()
-                    .overwrite_line_number(line_number),
+                context: self.content.context.clone().line_index(line_index),
                 ..(*self.content)
             }),
         }
