@@ -12,7 +12,7 @@ pub struct Context<'text> {
     /// The source or path of the text
     source: Option<Cow<'text, str>>,
     /// 1 based index of the first line (0 is used as niche for the None case)
-    line_index: Option<NonZeroU32>,
+    line_number: Option<NonZeroU32>,
     /// Offset of the first line (in characters) before the slice starts
     first_line_offset: u32,
     /// The text of this context, multiline text is handled by [str::lines]
@@ -115,7 +115,7 @@ impl<'text> Context<'text> {
         Self {
             source: None,
             first_line_offset: 0,
-            line_index: None,
+            line_number: None,
             lines: line.into(),
             highlights: Vec::new(),
         }
@@ -126,7 +126,7 @@ impl<'text> Context<'text> {
         Self {
             source: None,
             first_line_offset: 0,
-            line_index: NonZeroU32::new(line_index + 1),
+            line_number: NonZeroU32::new(line_index + 1),
             lines: line.into(),
             highlights: Vec::new(),
         }
@@ -142,7 +142,7 @@ impl<'text> Context<'text> {
         Self {
             source: None,
             first_line_offset: 0,
-            line_index: line_index.and_then(|i| NonZeroU32::new(i + 1)),
+            line_number: line_index.and_then(|i| NonZeroU32::new(i + 1)),
             lines: line.into(),
             highlights: vec![Highlight {
                 line: 0,
@@ -164,7 +164,7 @@ impl<'text> Context<'text> {
         Self {
             source: None,
             first_line_offset: 0,
-            line_index: line_index.and_then(|i| NonZeroU32::new(i + 1)),
+            line_number: line_index.and_then(|i| NonZeroU32::new(i + 1)),
             lines: line.into(),
             highlights: vec![Highlight {
                 line: 0,
@@ -234,7 +234,7 @@ impl<'text> Context<'text> {
             .collect::<Vec<_>>();
         Self {
             source: None,
-            line_index: line_index.and_then(|i| NonZeroU32::new(i + 1)),
+            line_number: line_index.and_then(|i| NonZeroU32::new(i + 1)),
             lines: lines.into(),
             first_line_offset: 0,
             // TODO: sort highlights (could this be the place to do placement optimisation?)
@@ -281,7 +281,7 @@ impl<'text> Context<'text> {
         if pos.text.is_empty() {
             Self {
                 source: None,
-                line_index: NonZeroU32::new(pos.line_index + 1),
+                line_number: NonZeroU32::new(pos.line_index + 1),
                 first_line_offset: 0,
                 lines: Cow::Borrowed(""),
                 highlights: vec![Highlight {
@@ -294,7 +294,7 @@ impl<'text> Context<'text> {
         } else {
             Self {
                 source: None,
-                line_index: NonZeroU32::new(pos.line_index + 1),
+                line_number: NonZeroU32::new(pos.line_index + 1),
                 first_line_offset: 0,
                 lines: Cow::Owned(pos.text.lines().next().unwrap().to_string()),
                 highlights: vec![Highlight {
@@ -312,7 +312,7 @@ impl<'text> Context<'text> {
         if start.line_index == end.line_index {
             Self {
                 source: None,
-                line_index: NonZeroU32::new(start.line_index + 1),
+                line_number: NonZeroU32::new(start.line_index + 1),
                 first_line_offset: start.column,
                 lines: Cow::Borrowed(&start.text[..(end.column - start.column) as usize]),
                 highlights: vec![Highlight {
@@ -325,7 +325,7 @@ impl<'text> Context<'text> {
         } else {
             Self {
                 source: None,
-                line_index: NonZeroU32::new(start.line_index + 1),
+                line_number: NonZeroU32::new(start.line_index + 1),
                 first_line_offset: start.column,
                 lines: Cow::Borrowed(
                     &start.text[..start
@@ -355,7 +355,7 @@ impl<'text> Context<'text> {
     #[must_use]
     pub fn line_index(self, line_index: u32) -> Self {
         Self {
-            line_index: NonZeroU32::new(line_index + 1),
+            line_number: NonZeroU32::new(line_index + 1),
             ..self
         }
     }
@@ -383,7 +383,7 @@ impl<'text> Context<'text> {
 impl<'text> Context<'text> {
     /// Check if this is an empty context
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty() && self.source.is_none() && self.line_index.is_none()
+        self.lines.is_empty() && self.source.is_none() && self.line_number.is_none()
     }
 
     /// Display this context, with an optional note after the context.
@@ -400,12 +400,14 @@ impl<'text> Context<'text> {
                 f,
                 "[{}{}{}]",
                 self.source.as_deref().unwrap_or_default(),
-                self.line_index.map(|i| format!(":{i}")).unwrap_or_default(),
+                self.line_number
+                    .map(|i| format!(":{i}"))
+                    .unwrap_or_default(),
                 self.highlights
                     .first()
                     .filter(|h| h.line == 0
                         && self.highlights.len() == 1
-                        && self.line_index.is_some())
+                        && self.line_number.is_some())
                     .map(|h| format!(":{}", self.first_line_offset + h.offset + 1))
                     .unwrap_or_default()
             )
@@ -416,7 +418,7 @@ impl<'text> Context<'text> {
                 clippy::cast_possible_truncation
             )]
             let get_margin = |n| ((n + 1) as f64).log10().max(1.0).ceil() as usize;
-            let margin = self.line_index.map_or(0, |n| {
+            let margin = self.line_number.map_or(0, |n| {
                 get_margin(n.get() as usize + self.lines.lines().count())
             });
 
@@ -425,12 +427,14 @@ impl<'text> Context<'text> {
                     f,
                     "{} ╭─[{source}{}{}]",
                     " ".repeat(margin),
-                    self.line_index.map(|i| format!(":{i}")).unwrap_or_default(),
+                    self.line_number
+                        .map(|i| format!(":{i}"))
+                        .unwrap_or_default(),
                     self.highlights
                         .first()
                         .filter(|h| h.line == 0
                             && self.highlights.len() == 1
-                            && self.line_index.is_some())
+                            && self.line_number.is_some())
                         .map(|h| format!(":{}", self.first_line_offset + h.offset + 1))
                         .unwrap_or_default()
                 )?;
@@ -444,7 +448,7 @@ impl<'text> Context<'text> {
                 write!(
                     f,
                     "\n{:<margin$} │ ",
-                    self.line_index
+                    self.line_number
                         .map_or(String::new(), |n| (n.get() as usize + index).to_string()),
                 )?;
                 if front_trimmed {
