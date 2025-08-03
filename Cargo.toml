@@ -1,14 +1,17 @@
 [package]
 name = "custom_error"
+description = "library to create rich errors to help users understand going about and fixing the thing"
 version = "0.1.0"
 edition = "2024"
-
-[lib]
-
+rust-version = "1.85"
+authors = ["Douwe Schulte <d.schulte@uu.nl>"]
+license = "EUPL-1.2"
+repository = "https://github.com/douweschulte/custom_error"
+keywords = ["error"]
+categories = ["rust-patterns"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-
+serde = { version = "1", features = ["derive"], optional = true }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"

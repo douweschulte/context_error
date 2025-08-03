@@ -4,6 +4,9 @@
 mod context;
 /// An error with all its properties
 mod custom_error;
+/// A highlight on a line
+mod highlight;
 
-pub use context::{Context, FilePosition, Highlight};
-pub use custom_error::CustomError;
+pub use context::*;
+pub use custom_error::*;
+pub use highlight::*;

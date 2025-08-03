@@ -1,4 +1,3 @@
-use serde::*;
 use std::{
     borrow::Cow,
     fmt,
@@ -6,8 +5,11 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+use crate::Highlight;
+
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
-#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Context<'text> {
     /// The source or path of the text
     source: Option<Cow<'text, str>>,
@@ -19,88 +21,6 @@ pub struct Context<'text> {
     lines: Cow<'text, str>,
     /// The highlights, required to be sorted by line first, offset second
     highlights: Vec<Highlight<'text>>,
-}
-
-/// A highlight on a single line. The easiest way of creating these is by using the [From] implementations.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct Highlight<'text> {
-    /// Line index in case multiple lines are given
-    pub line: u8,
-    /// The offset (in chars) into the line
-    pub offset: u32,
-    /// The length of the highlight
-    pub length: u8,
-    /// Optional comment to post next to the highlight
-    pub comment: Option<Cow<'text, str>>,
-}
-
-/// Create a highlight at the given line, offset, and of the given length without a comment.
-impl From<(u8, u32, u8)> for Highlight<'static> {
-    fn from(value: (u8, u32, u8)) -> Self {
-        Self {
-            line: value.0,
-            offset: value.1,
-            length: value.2,
-            comment: None,
-        }
-    }
-}
-
-/// Create a highlight at the given line, offset, of the given length, and with a comment.
-impl<'text, Comment: Into<Cow<'text, str>>> From<(u8, u32, u8, Comment)> for Highlight<'text> {
-    fn from(value: (u8, u32, u8, Comment)) -> Self {
-        Self {
-            line: value.0,
-            offset: value.1,
-            length: value.2,
-            comment: Some(value.3.into()),
-        }
-    }
-}
-
-/// Create a highlight at the given line and at the given range, without a comment.
-impl<'text, Range: RangeBounds<u32>> From<(u8, Range)> for Highlight<'text> {
-    fn from(value: (u8, Range)) -> Self {
-        let offset = match value.1.start_bound() {
-            Bound::Excluded(n) => n + 1,
-            Bound::Included(n) => *n,
-            Bound::Unbounded => 0,
-        };
-        Self {
-            line: value.0,
-            offset,
-            length: match value.1.end_bound() {
-                Bound::Excluded(n) => u8::try_from(n - offset).unwrap_or(u8::MAX),
-                Bound::Included(n) => u8::try_from(n - offset + 1).unwrap_or(u8::MAX),
-                Bound::Unbounded => u8::MAX,
-            },
-            comment: None,
-        }
-    }
-}
-
-/// Create a highlight at the given line, at the given range, and with a comment.
-/// Used `u32` here because otherwise this clashes with the `(usize, usize, usize)` option.
-impl<'text, Range: RangeBounds<u32>, Comment: Into<Cow<'text, str>>> From<(u16, Range, Comment)>
-    for Highlight<'text>
-{
-    fn from(value: (u16, Range, Comment)) -> Self {
-        let offset = match value.1.start_bound() {
-            Bound::Excluded(n) => n + 1,
-            Bound::Included(n) => *n,
-            Bound::Unbounded => 0,
-        };
-        Self {
-            line: value.0 as u8,
-            offset,
-            length: match value.1.end_bound() {
-                Bound::Excluded(n) => u8::try_from(n - offset).unwrap_or(u8::MAX),
-                Bound::Included(n) => u8::try_from(n - offset + 1).unwrap_or(u8::MAX),
-                Bound::Unbounded => u8::MAX,
-            },
-            comment: Some(value.2.into()),
-        }
-    }
 }
 
 /// Convenience wrappers using common patterns
@@ -381,6 +301,16 @@ impl<'text> Context<'text> {
 
 /// Functionality
 impl<'text> Context<'text> {
+    /// (Possibly) clone the text to get a static valid Context
+    pub fn to_owned(self) -> Context<'static> {
+        Context {
+            source: self.source.map(|c| Cow::Owned(c.into_owned())),
+            lines: Cow::Owned(self.lines.into_owned()),
+            highlights: self.highlights.into_iter().map(|h| h.to_owned()).collect(),
+            ..self
+        }
+    }
+
     /// Check if this is an empty context
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty() && self.source.is_none() && self.line_number.is_none()
