@@ -196,7 +196,7 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context to highlight a certain position
-    #[expect(clippy::unwrap_used, clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used, clippy::missing_panics_doc)]
     pub fn position(pos: &FilePosition<'_>) -> Self {
         if pos.text.is_empty() {
             Self {
@@ -342,7 +342,7 @@ impl<'text> Context<'text> {
                     .unwrap_or_default()
             )
         } else {
-            #[expect(
+            #[allow(
                 clippy::cast_sign_loss,
                 clippy::cast_precision_loss,
                 clippy::cast_possible_truncation
