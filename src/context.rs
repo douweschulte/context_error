@@ -157,7 +157,6 @@ impl<'text> Context<'text> {
             line_number: line_index.and_then(|i| NonZeroU32::new(i + 1)),
             lines: lines.into(),
             first_line_offset: 0,
-            // TODO: sort highlights (could this be the place to do placement optimisation?)
             highlights: highlights
                 .into_iter()
                 .map(
@@ -293,8 +292,18 @@ impl<'text> Context<'text> {
     /// Add a highlight
     #[must_use]
     pub fn add_highlight(mut self, highlight: impl Into<Highlight<'text>>) -> Self {
-        // TODO: keep sorted
         self.highlights.push(highlight.into());
+        self
+    }
+
+    /// Add a highlights
+    #[must_use]
+    pub fn add_highlights<T: Into<Highlight<'text>>>(
+        mut self,
+        highlights: impl IntoIterator<Item = T>,
+    ) -> Self {
+        self.highlights
+            .extend(highlights.into_iter().map(|i| i.into()));
         self
     }
 }
@@ -320,7 +329,6 @@ impl<'text> Context<'text> {
     /// # Errors
     /// If the underlying formatter errors.
     fn display(&self, f: &mut fmt::Formatter<'_>, note: Option<&str>) -> fmt::Result {
-        const MAX_COLS: usize = 95; // TODO: clip lines if too ling
         const HIGHLIGHT_START_LINE: &str = " ╎ ";
 
         if self.is_empty() {
@@ -351,6 +359,7 @@ impl<'text> Context<'text> {
             let margin = self.line_number.map_or(0, |n| {
                 get_margin(n.get() as usize + self.lines.lines().count())
             });
+            let max_cols: usize = 100 - margin - 3;
 
             if let Some(source) = &self.source {
                 write!(
@@ -371,73 +380,177 @@ impl<'text> Context<'text> {
             } else {
                 write!(f, "{} ╷", " ".repeat(margin))?;
             }
-            let mut highlights_peek = self.highlights.iter().peekable();
 
             for (index, line) in self.lines.lines().enumerate() {
-                let front_trimmed = index == 0 && self.first_line_offset > 0;
-                write!(
-                    f,
-                    "\n{:<margin$} │ ",
-                    self.line_number
-                        .map_or(String::new(), |n| (n.get() as usize + index).to_string()),
-                )?;
-                if front_trimmed {
-                    write!(f, "…")?;
-                }
-                let mut line_length = 0;
-                // TODO: get highlights to check if the line can be truncated
-                for c in line.chars() {
+                let mut highlight_range = None;
+                let mut highlights: Vec<_> = self
+                    .highlights
+                    .iter()
+                    .filter(|h| h.line as usize == index)
+                    .inspect(|h| {
+                        highlight_range = Some(highlight_range.map_or(
+                            (h.offset, h.offset + h.length as u32),
+                            |range: (u32, u32)| {
+                                (
+                                    range.0.min(h.offset),
+                                    range.1.max(h.offset + h.length as u32),
+                                )
+                            },
+                        ));
+                    })
+                    .collect();
+                highlights.sort_by(|a, b| a.offset.cmp(&b.offset));
+
+                let line_length = line.chars().count();
+                let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
+                    (0, max_cols - 1),
+                    |(start, end)| {
+                        (
+                            start.saturating_sub(5) as usize,
+                            (end.saturating_add(5) as usize).min(line_length),
+                        )
+                    },
+                );
+
+                let mut first = true;
+                let mut last_line_comment_cut_off = false;
+                for start in (displayed_range.0..displayed_range.1).step_by(max_cols - 1) {
+                    let end = (start + max_cols).min(line_length); // Absolute position
+                    let length = end.saturating_sub(start);
+
                     write!(
                         f,
-                        "{}",
-                        match c {
-                            c if c as u32 <= 31 => char::try_from(c as u32 + 0x2400).unwrap(),
-                            '\u{007F}' => '␡',
-                            c => c,
-                        }
+                        "\n{:<margin$} │ ",
+                        self.line_number
+                            .map_or(String::new(), |n| (n.get() as usize + index).to_string()),
                     )?;
-                    line_length += 1;
-                }
-                let mut last_offset: usize = 0;
-                while let Some(high) = highlights_peek.peek() {
-                    if high.line as usize > index {
-                        break;
+
+                    let front_trimmed =
+                        first && (index == 0 && self.first_line_offset > 0) || start != 0;
+                    let end_trimmed = end < line_length;
+                    if front_trimmed {
+                        write!(f, "…")?;
                     }
-                    if let Some(high) = highlights_peek.next() {
-                        // TODO: current layout is not maximally small in number of lines, maybe the highlights could be reordered to place the highest amount of highlights on every line
-                        let start;
-                        let start_offset;
-                        if last_offset != 0 && last_offset < high.offset as usize {
-                            start = String::new();
-                            start_offset = last_offset;
-                        } else {
-                            start = format!(
-                                "\n{}{HIGHLIGHT_START_LINE}{}",
-                                " ".repeat(margin),
-                                " ".repeat(usize::from(front_trimmed))
-                            );
-                            start_offset = 0;
-                        }
+                    first = false;
+                    for c in
+                        line.chars().skip(start).take(length.min(
+                            max_cols.saturating_sub(
+                                usize::from(front_trimmed) + usize::from(end_trimmed),
+                            ),
+                        ))
+                    {
                         write!(
                             f,
-                            "{start}{}{}{}",
-                            " ".repeat(high.offset as usize - start_offset),
-                            if high.length == 0 {
-                                "⏵".to_string()
-                            } else {
-                                "─"
-                                    .repeat((high.length as u32).min(line_length - high.offset)
-                                        as usize)
-                            },
-                            high.comment
-                                .as_deref()
-                                .map_or(String::new(), |c| format!(" {c}")), //Maybe one of: ╸·
+                            "{}",
+                            match c {
+                                c if c as u32 <= 31 => char::try_from(c as u32 + 0x2400).unwrap(),
+                                '\u{007F}' => '␡',
+                                c => c,
+                            }
                         )?;
+                    }
+                    if end_trimmed {
+                        write!(f, "…")?;
+                    }
+
+                    // Display the highlights that are placed on this chunk
+                    let mut last_offset: usize = 0; // In absolute offset
+
+                    for high in highlights.iter().filter(|h| {
+                        h.offset as usize
+                            <= (end - usize::from(front_trimmed) - usize::from(end_trimmed))
+                            && h.offset as usize + h.length as usize >= start
+                    }) {
+                        // TODO: current layout is not maximally small in number of lines, maybe the highlights could be reordered to place the highest amount of highlights on every line
+                        let start_string;
+                        let start_offset; // In offset on this line
+                        if last_offset != 0 && last_offset <= high.offset as usize {
+                            start_string = String::new();
+                            start_offset = last_offset;
+                        } else {
+                            start_string = format!(
+                                "\n{}{HIGHLIGHT_START_LINE}{}",
+                                " ".repeat(margin),
+                                if last_line_comment_cut_off {
+                                    "─"
+                                } else {
+                                    " "
+                                }
+                                .repeat(usize::from(front_trimmed))
+                            );
+                            start_offset = start + usize::from(front_trimmed);
+                            last_line_comment_cut_off = false;
+                        }
+                        let mut comment_cut_off = false;
+                        write!(
+                            f,
+                            "{start_string}{}{}",
+                            " ".repeat((high.offset as usize).saturating_sub(start_offset)),
+                            match high.length {
+                                0 => "ò".to_string(),
+                                1 => "⁃".to_string(),
+                                n => {
+                                    let high_length = usize::from(high.length)
+                                        .min(line_length - high.offset as usize);
+                                    if (high.offset as usize) < start {
+                                        format!(
+                                            "{}╴",
+                                            "─".repeat(
+                                                (high.offset as usize + high.length as usize)
+                                                    .saturating_sub(start)
+                                                    .saturating_sub(1)
+                                            )
+                                        )
+                                    } else if high.offset as usize + high_length
+                                        > end - usize::from(end_trimmed)
+                                    {
+                                        comment_cut_off = true;
+                                        last_line_comment_cut_off = true;
+                                        format!(
+                                            "╶{}",
+                                            "─".repeat(high_length.min(
+                                                end - usize::from(end_trimmed)
+                                                    - usize::from(front_trimmed)
+                                                    - high.offset as usize
+                                            ))
+                                        )
+                                    } else {
+                                        format!(
+                                            "╶{}╴",
+                                            "─".repeat(
+                                                (usize::from(n) - 2).min(
+                                                    length
+                                                        .saturating_sub(
+                                                            (high.offset as usize)
+                                                                .saturating_sub(start)
+                                                        )
+                                                        .saturating_sub(2)
+                                                )
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        )?;
+                        // Write out the comment
+                        if !comment_cut_off {
+                            let mut index =
+                                (high.offset as usize).saturating_sub(start) + high.length as usize;
+                            for c in high.comment.as_deref().unwrap_or_default().chars() {
+                                if index == max_cols {
+                                    index = 0;
+                                    write!(f, "\n{}{HIGHLIGHT_START_LINE}", " ".repeat(margin))?;
+                                }
+                                write!(f, "{c}")?;
+                                index += 1;
+                            }
+                        }
                         last_offset = high.offset as usize
-                            + usize::from(high.length)
-                                .max(1)
-                                .min((line_length - high.offset) as usize)
-                            + high.comment.as_ref().map_or(0, |c| 1 + c.chars().count());
+                            + usize::from(high.length).max(1).min(
+                                length.saturating_sub((high.offset as usize).saturating_sub(start)),
+                            )
+                            + high.comment.as_ref().map_or(0, |c| c.chars().count())
+                            + usize::from(front_trimmed && self.first_line_offset == 0);
                     }
                 }
             }
@@ -496,37 +609,48 @@ mod tests {
     test!(full_line: Context::full_line(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
         => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╵");
     test!(line: Context::line(Some(0), "#[derive(Clone, Copy, Debug, Eq, PartialEq)]", 16, 4) 
-        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╎                 ────\n  ╵");
+        => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╎                 ╶──╴\n  ╵");
     test!(line_range: Context::line_range(Some(0), "\tpub column; usize,", 11..13) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃\n  ╵");
     test!(line_range_comment: Context::line_range_with_comment(Some(0), "\tpub column; usize,", 11..13, Some(Cow::Borrowed("Use colon instead"))) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─ Use colon instead\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃Use colon instead\n  ╵");
     test!(line_comment: Context::line_with_comment(Some(0), "\tpub column; usize,", 11, 1, Some(Cow::Borrowed("Use colon instead"))) 
-        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ─ Use colon instead\n  ╵");
+        => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃Use colon instead\n  ╵");
     test!(single_line_multiple_highlights: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, None), (0, 4..=8, None), (0, 9..=13, None)]) 
-        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── ──── ────\n  ╵");
+        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ╶─╴ ╶──╴ ╶──╴\n  ╵");
     test!(single_line_multiple_highlights_comments: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, Some(Cow::Borrowed("Score"))), (0, 4..=8, Some(Cow::Borrowed("RT"))), (0, 9..=13, Some(Cow::Borrowed("Method")))]) 
-        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ─── Score\n  ╎     ──── RT\n  ╎          ──── Method\n  ╵");
+        => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ╶─╴Score\n  ╎     ╶──╴RT\n  ╎          ╶──╴Method\n  ╵");
     test!(builder: Context::default().lines(0, "Hello world").add_highlight((0, 1, 2)).add_highlight((0, 6.., "Rest")) 
-        => " ╷\n │ Hello world\n ╎  ──   ───── Rest\n ╵");
+        => " ╷\n │ Hello world\n ╎  ╶╴   ╶───╴Rest\n ╵");
     test!(builder_source: Context::default().source("path/file.txt").lines(1, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
-        => " ╭─[path/file.txt]\n │ …ello world\n ╎  ──   ───── Rest\n ╵");
+        => " ╭─[path/file.txt]\n │ …ello world\n ╎  ╶╴   ╶───╴Rest\n ╵");
     test!(builder_source_line_1: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2))
-        => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ──\n  ╵");
+        => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ╶╴\n  ╵");
     test!(builder_source_line_2: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
-        => "  ╭─[path/file.txt:3]\n3 │ …ello world\n  ╎  ──   ───── Rest\n  ╵");
+        => "  ╭─[path/file.txt:3]\n3 │ …ello world\n  ╎  ╶╴   ╶───╴Rest\n  ╵");
     test!(builder_source_line_offset: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)) 
-        => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ──\n  ╵");
+        => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ╶╴\n  ╵");
     test!(builder_source_offset: Context::default().source("path/file.txt").lines(1, "ello world").add_highlight((0, 0, 2)) 
-        => " ╭─[path/file.txt]\n │ …ello world\n ╎  ──\n ╵");
+        => " ╭─[path/file.txt]\n │ …ello world\n ╎  ╶╴\n ╵");
     test!(multi: Context::default().lines(0, "Hello world\nMake it a good one!") 
         => " ╷\n │ Hello world\n │ Make it a good one!\n ╵");
     test!(multi_highlight_1: Context::default().lines(0, "Hello world\nMake it a good one!").add_highlight((0, 1, 2)).add_highlight((1, 5, 2)).add_highlight((1, 6, 3))
-        => " ╷\n │ Hello world\n ╎  ──\n │ Make it a good one!\n ╎      ──\n ╎       ───\n ╵");
+        => " ╷\n │ Hello world\n ╎  ╶╴\n │ Make it a good one!\n ╎      ╶╴\n ╎       ╶─╴\n ╵");
     test!(multi_highlight_2: Context::default().lines(0, "Hello world\nMake it a good one!").add_highlight((0, 1, 2)).add_highlight((1, 5, 2, "Cool")).add_highlight((1, 15, 3, "1"))
-        => " ╷\n │ Hello world\n ╎  ──\n │ Make it a good one!\n ╎      ── Cool   ─── 1\n ╵");
+        => " ╷\n │ Hello world\n ╎  ╶╴\n │ Make it a good one!\n ╎      ╶╴Cool    ╶─╴1\n ╵");
     test!(multi_source_highlight: Context::default().source("file.txt").lines(0, "Hello world\nMake it a good one!").add_highlight((0, 1, 2))
-        => " ╭─[file.txt]\n │ Hello world\n ╎  ──\n │ Make it a good one!\n ╵");
+        => " ╭─[file.txt]\n │ Hello world\n ╎  ╶╴\n │ Make it a good one!\n ╵");
     test!(multi_source_line_highlight: Context::default().source("file.txt").line_index(41).lines(0, "Hello world\nMake it a good one!").add_highlight((0, 1, 2))
-        => "   ╭─[file.txt:42:2]\n42 │ Hello world\n   ╎  ──\n43 │ Make it a good one!\n   ╵");
+        => "   ╭─[file.txt:42:2]\n42 │ Hello world\n   ╎  ╶╴\n43 │ Make it a good one!\n   ╵");
+    test!(multi_together: Context::default().source("file.txt").line_index(41).lines(0, "Hello world").add_highlight((0, 1..4)).add_highlight((0, 4..6)).add_highlight((0, 6..7)).add_highlight((0, 7..8))
+        => "   ╭─[file.txt:42]\n42 │ Hello world\n   ╎  ╶─╴╶╴⁃⁃\n   ╵");
+    test!(csv_try: Context::default().source("file.csv").line_index(1).lines(0, "hihi,  \t\r\t,,1234.56  567,\"hellow,hellow\",rrrr,   rf   ,1,hjksdfhjkfsdhjksdfhkjhjkfsdhjkdsfhjkfdshjksdfhjksfdhjksdjhkfdsjhj")
+            .add_highlights([(0, 0..4),(0, 10..10),(0, 11..11),(0, 12..24),(0, 26..39),(0, 41..45),(0, 49..51),(0, 55..56),(0, 57..122)])
+        => "  ╭─[file.csv:2]\n2 │ hihi,  ␉␍␉,,1234.56  567,\"hellow,hellow\",rrrr,   rf   ,1,hjksdfhjkfsdhjksdfhkjhjkfsdhjkdsfhjkfd…\n  ╎ ╶──╴      òò╶──────────╴  ╶───────────╴  ╶──╴    ╶╴    ⁃ ╶──────────────────────────────────────\n2 │ …shjksdfhjksfdhjksdjhkfdsjhj\n  ╎ ───────────────────────────╴\n  ╵");
+    test!(wrapping_1: Context::default().source("file.csv").line_index(1).lines(0, "saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccaaaaaadddddaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .add_highlights([(0, 0..1, "Start"), (0, 90..100, "CommentB"),(0, 183..185, "CommentC"),(0,190..195,"CommentD")])
+        => "  ╭─[file.csv:2]\n2 │ saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbb…\n  ╎ ⁃Start                                                                                    ╶─────\n2 │ …bbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccaaaaa…\n  ╎ ─────╴CommentB                                                                          ╶╴Commen\n  ╎ tC\n2 │ …dddddaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  ╎  ╶───╴CommentD\n  ╵");
+    test!(wrapping_2: Context::default().source("file.csv").line_index(1).lines(0, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .add_highlight((0, 0..1, "A very really long comment bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+        => "  ╭─[file.csv:2:1]\n2 │ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…\n  ╎ ⁃A very really long comment bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╎ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╎ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╵");
 }

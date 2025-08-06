@@ -265,13 +265,13 @@ mod tests {
     test!(suggestions: CustomError::error("Invalid path", "This file does not exist", Context::show("fileee.txt")).suggestions(["file.txt", "filet.txt"]) 
         => "error: Invalid path\n ╷\n │ fileee.txt\n ╵\nThis file does not exist\nDid you mean any of: file.txt, filet.txt?\n");
     test!(version: CustomError::error("Invalid number", "This columns is not a number", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9))).version("Software AB v2025.42") 
-        => "error: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎      ────\n ╵\nThis columns is not a number\nVersion: Software AB v2025.42\n");
+        => "error: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis columns is not a number\nVersion: Software AB v2025.42\n");
 
     const TEXT: &str = "number";
 
     test!(underlying_error: CustomError::error("Invalid csv line", format!("This column is not a {TEXT}"), Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
                 .add_underlying_error(CustomError::error("Invalid number", "The number contains invalid digit(s)", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 7..8)))) 
-            => "error: Invalid csv line\n ╷\n │ null,80o0,YES,,67.77\n ╎      ────\n ╵\nThis column is not a number\nUnderlying error:\nerror: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎        ─\n ╵\nThe number contains invalid digit(s)\n\n");
+            => "error: Invalid csv line\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis column is not a number\nUnderlying error:\nerror: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎        ⁃\n ╵\nThe number contains invalid digit(s)\n\n");
 
     #[test]
     fn test_level() {
