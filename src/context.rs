@@ -544,6 +544,7 @@ impl<'text> Context<'text> {
                                 write!(f, "{c}")?;
                                 index += 1;
                             }
+                            last_offset = index; // TODO: fix
                         }
                         last_offset = high.offset as usize
                             + usize::from(high.length).max(1).min(
@@ -592,7 +593,7 @@ mod tests {
                 let context = $context;
                 let string = context.to_string();
                 if string != $expected {
-                    panic!("Generated context:\n{}\nNot identical to expected:\n{}\nThis is the generated if this actually is correct: {0:?}", string, $expected);
+                    panic!("Generated context:\n{}\nNot identical to expected:\n{}\nThis is the generated string if this actually is correct: {0:?}", string, $expected);
                 }
             }
         };
@@ -653,4 +654,7 @@ mod tests {
     test!(wrapping_2: Context::default().source("file.csv").line_index(1).lines(0, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .add_highlight((0, 0..1, "A very really long comment bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
         => "  ╭─[file.csv:2:1]\n2 │ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…\n  ╎ ⁃A very really long comment bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╎ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╎ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n  ╵");
+    test!(wrapping_3: Context::default().source("file.csv").line_index(1).lines(0, "saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabccccbbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccadaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .add_highlights([(0, 0..1, "Start"), (0, 90..100, "CommentB"),(0, 91..95, "CommentC"),(0,183..185,"CommentC"),(0,186..187,"CommentD")])
+        => "  ╭─[file.csv:2]\n2 │ saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbb…\n  ╎ ⁃Start                                                                                    ╶─────\n2 │ …bbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccaaaaa…\n  ╎ ─────╴CommentB                                                                          ╶╴Commen\n  ╎ tC\n2 │ …dddddaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  ╎  ╶───╴CommentD\n  ╵");
 }
