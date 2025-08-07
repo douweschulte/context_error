@@ -8,18 +8,18 @@ use std::{
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Highlight<'text> {
     /// Line index in case multiple lines are given
-    pub line: u8,
+    pub line: usize,
     /// The offset (in chars) into the line
-    pub offset: u32,
+    pub offset: usize,
     /// The length of the highlight
-    pub length: u8,
+    pub length: usize,
     /// Optional comment to post next to the highlight
     pub comment: Option<Cow<'text, str>>,
 }
 
 /// Create a highlight at the given line, offset, and of the given length without a comment.
-impl From<(u8, u32, u8)> for Highlight<'static> {
-    fn from(value: (u8, u32, u8)) -> Self {
+impl From<(usize, usize, usize)> for Highlight<'static> {
+    fn from(value: (usize, usize, usize)) -> Self {
         Self {
             line: value.0,
             offset: value.1,
@@ -30,8 +30,10 @@ impl From<(u8, u32, u8)> for Highlight<'static> {
 }
 
 /// Create a highlight at the given line, offset, of the given length, and with a comment.
-impl<'text, Comment: Into<Cow<'text, str>>> From<(u8, u32, u8, Comment)> for Highlight<'text> {
-    fn from(value: (u8, u32, u8, Comment)) -> Self {
+impl<'text, Comment: Into<Cow<'text, str>>> From<(usize, usize, usize, Comment)>
+    for Highlight<'text>
+{
+    fn from(value: (usize, usize, usize, Comment)) -> Self {
         Self {
             line: value.0,
             offset: value.1,
@@ -42,8 +44,8 @@ impl<'text, Comment: Into<Cow<'text, str>>> From<(u8, u32, u8, Comment)> for Hig
 }
 
 /// Create a highlight at the given line and at the given range, without a comment.
-impl<'text, Range: RangeBounds<u32>> From<(u8, Range)> for Highlight<'text> {
-    fn from(value: (u8, Range)) -> Self {
+impl<'text, Range: RangeBounds<usize>> From<(usize, Range)> for Highlight<'text> {
+    fn from(value: (usize, Range)) -> Self {
         let offset = match value.1.start_bound() {
             Bound::Excluded(n) => n + 1,
             Bound::Included(n) => *n,
@@ -53,9 +55,9 @@ impl<'text, Range: RangeBounds<u32>> From<(u8, Range)> for Highlight<'text> {
             line: value.0,
             offset,
             length: match value.1.end_bound() {
-                Bound::Excluded(n) => u8::try_from(n - offset).unwrap_or(u8::MAX),
-                Bound::Included(n) => u8::try_from(n - offset + 1).unwrap_or(u8::MAX),
-                Bound::Unbounded => u8::MAX,
+                Bound::Excluded(n) => n - offset,
+                Bound::Included(n) => n - offset + 1,
+                Bound::Unbounded => usize::MAX,
             },
             comment: None,
         }
@@ -63,23 +65,23 @@ impl<'text, Range: RangeBounds<u32>> From<(u8, Range)> for Highlight<'text> {
 }
 
 /// Create a highlight at the given line, at the given range, and with a comment.
-/// Used `u32` here because otherwise this clashes with the `(usize, usize, usize)` option.
-impl<'text, Range: RangeBounds<u32>, Comment: Into<Cow<'text, str>>> From<(u16, Range, Comment)>
+/// Used `u64` here because otherwise this clashes with the `(usize, usize, usize)` option.
+impl<'text, Range: RangeBounds<usize>, Comment: Into<Cow<'text, str>>> From<(u64, Range, Comment)>
     for Highlight<'text>
 {
-    fn from(value: (u16, Range, Comment)) -> Self {
+    fn from(value: (u64, Range, Comment)) -> Self {
         let offset = match value.1.start_bound() {
             Bound::Excluded(n) => n + 1,
             Bound::Included(n) => *n,
             Bound::Unbounded => 0,
         };
         Self {
-            line: value.0 as u8,
+            line: value.0 as usize,
             offset,
             length: match value.1.end_bound() {
-                Bound::Excluded(n) => u8::try_from(n - offset).unwrap_or(u8::MAX),
-                Bound::Included(n) => u8::try_from(n - offset + 1).unwrap_or(u8::MAX),
-                Bound::Unbounded => u8::MAX,
+                Bound::Excluded(n) => n - offset,
+                Bound::Included(n) => n - offset + 1,
+                Bound::Unbounded => usize::MAX,
             },
             comment: Some(value.2.into()),
         }

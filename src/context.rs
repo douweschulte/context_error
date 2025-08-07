@@ -56,8 +56,8 @@ impl<'text> Context<'text> {
     pub fn line(
         line_index: Option<u32>,
         line: impl Into<Cow<'text, str>>,
-        offset: u32,
-        length: u8,
+        offset: usize,
+        length: usize,
     ) -> Self {
         Self {
             source: None,
@@ -77,8 +77,8 @@ impl<'text> Context<'text> {
     pub fn line_with_comment(
         line_index: Option<u32>,
         line: impl Into<Cow<'text, str>>,
-        offset: u32,
-        length: u8,
+        offset: usize,
+        length: usize,
         comment: Option<Cow<'text, str>>,
     ) -> Self {
         Self {
@@ -99,7 +99,7 @@ impl<'text> Context<'text> {
     pub fn line_range(
         line_index: Option<u32>,
         line: &'text str,
-        range: impl RangeBounds<u32>,
+        range: impl RangeBounds<usize>,
     ) -> Self {
         Self::line_range_with_comment(line_index, line, range, None)
     }
@@ -108,7 +108,7 @@ impl<'text> Context<'text> {
     pub fn line_range_with_comment(
         line_index: Option<u32>,
         line: &'text str,
-        range: impl RangeBounds<u32>,
+        range: impl RangeBounds<usize>,
         comment: Option<Cow<'text, str>>,
     ) -> Self {
         match (range.start_bound(), range.end_bound()) {
@@ -125,17 +125,12 @@ impl<'text> Context<'text> {
                     line_index,
                     line,
                     start,
-                    u8::try_from(
-                        match end {
-                            Bound::Excluded(n) => n - 1,
-                            Bound::Included(n) => *n,
-                            Bound::Unbounded => {
-                                u32::try_from(line.chars().count()).unwrap_or(u32::MAX)
-                            }
-                        }
-                        .saturating_sub(start),
-                    )
-                    .unwrap_or(u8::MAX),
+                    match end {
+                        Bound::Excluded(n) => n - 1,
+                        Bound::Included(n) => *n,
+                        Bound::Unbounded => line.chars().count(),
+                    }
+                    .saturating_sub(start),
                     comment,
                 )
             }
@@ -146,12 +141,9 @@ impl<'text> Context<'text> {
     pub fn multiple_highlights(
         line_index: Option<u32>,
         lines: &'text str,
-        highlights: impl IntoIterator<Item = (u8, impl RangeBounds<u32>, Option<Cow<'text, str>>)>,
+        highlights: impl IntoIterator<Item = (usize, impl RangeBounds<usize>, Option<Cow<'text, str>>)>,
     ) -> Self {
-        let lengths = lines
-            .lines()
-            .map(|l| u32::try_from(l.chars().count()).unwrap_or(u32::MAX))
-            .collect::<Vec<_>>();
+        let lengths = lines.lines().map(|l| l.chars().count()).collect::<Vec<_>>();
         Self {
             source: None,
             line_number: line_index.and_then(|i| NonZeroU32::new(i + 1)),
@@ -164,7 +156,7 @@ impl<'text> Context<'text> {
                         (Bound::Unbounded, Bound::Unbounded) => Highlight {
                             line,
                             offset: 0,
-                            length: u8::try_from(lengths[line as usize]).unwrap_or(u8::MAX),
+                            length: lengths[line],
                             comment,
                         },
                         (start, end) => {
@@ -176,15 +168,12 @@ impl<'text> Context<'text> {
                             Highlight {
                                 line,
                                 offset: start,
-                                length: u8::try_from(
-                                    match end {
-                                        Bound::Excluded(n) => n - 1,
-                                        Bound::Included(n) => *n,
-                                        Bound::Unbounded => lengths[line as usize],
-                                    }
-                                    .saturating_sub(start),
-                                )
-                                .unwrap_or(u8::MAX),
+                                length: match end {
+                                    Bound::Excluded(n) => n - 1,
+                                    Bound::Included(n) => *n,
+                                    Bound::Unbounded => lengths[line],
+                                }
+                                .saturating_sub(start),
                                 comment,
                             }
                         }
@@ -237,7 +226,7 @@ impl<'text> Context<'text> {
                 highlights: vec![Highlight {
                     line: 0,
                     offset: 0,
-                    length: u8::try_from(end.column - start.column).unwrap_or(u8::MAX),
+                    length: (end.column - start.column) as usize,
                     comment: None,
                 }],
             }
@@ -346,7 +335,7 @@ impl<'text> Context<'text> {
                     .filter(|h| h.line == 0
                         && self.highlights.len() == 1
                         && self.line_number.is_some())
-                    .map(|h| format!(":{}", self.first_line_offset + h.offset + 1))
+                    .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
                     .unwrap_or_default()
             )
         } else {
@@ -374,7 +363,7 @@ impl<'text> Context<'text> {
                         .filter(|h| h.line == 0
                             && self.highlights.len() == 1
                             && self.line_number.is_some())
-                        .map(|h| format!(":{}", self.first_line_offset + h.offset + 1))
+                        .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
                         .unwrap_or_default()
                 )?;
             } else {
@@ -386,15 +375,12 @@ impl<'text> Context<'text> {
                 let mut highlights: Vec<_> = self
                     .highlights
                     .iter()
-                    .filter(|h| h.line as usize == index)
+                    .filter(|h| h.line == index)
                     .inspect(|h| {
                         highlight_range = Some(highlight_range.map_or(
-                            (h.offset, h.offset + h.length as u32),
-                            |range: (u32, u32)| {
-                                (
-                                    range.0.min(h.offset),
-                                    range.1.max(h.offset + h.length as u32),
-                                )
+                            (h.offset, h.offset + h.length),
+                            |range: (usize, usize)| {
+                                (range.0.min(h.offset), range.1.max(h.offset + h.length))
                             },
                         ));
                     })
@@ -406,8 +392,8 @@ impl<'text> Context<'text> {
                     (0, max_cols - 1),
                     |(start, end)| {
                         (
-                            start.saturating_sub(5) as usize,
-                            (end.saturating_add(5) as usize).min(line_length),
+                            start.saturating_sub(5),
+                            end.saturating_add(5).min(line_length),
                         )
                     },
                 );
@@ -457,14 +443,13 @@ impl<'text> Context<'text> {
                     let mut last_offset: usize = 0; // In absolute offset
 
                     for high in highlights.iter().filter(|h| {
-                        h.offset as usize
-                            <= (end - usize::from(front_trimmed) - usize::from(end_trimmed))
-                            && h.offset as usize + h.length as usize >= start
+                        h.offset <= (end - usize::from(front_trimmed) - usize::from(end_trimmed))
+                            && h.offset + h.length >= start
                     }) {
                         // TODO: current layout is not maximally small in number of lines, maybe the highlights could be reordered to place the highest amount of highlights on every line
                         let start_string;
                         let start_offset; // In offset on this line
-                        if last_offset != 0 && last_offset <= high.offset as usize {
+                        if last_offset != 0 && last_offset <= high.offset {
                             start_string = String::new();
                             start_offset = last_offset;
                         } else {
@@ -485,23 +470,22 @@ impl<'text> Context<'text> {
                         write!(
                             f,
                             "{start_string}{}{}",
-                            " ".repeat((high.offset as usize).saturating_sub(start_offset)),
+                            " ".repeat(high.offset.saturating_sub(start_offset)),
                             match high.length {
                                 0 => "ò".to_string(),
                                 1 => "⁃".to_string(),
                                 n => {
-                                    let high_length = usize::from(high.length)
-                                        .min(line_length - high.offset as usize);
-                                    if (high.offset as usize) < start {
+                                    let high_length = high.length.min(line_length - high.offset);
+                                    if high.offset < start {
                                         format!(
                                             "{}╴",
                                             "─".repeat(
-                                                (high.offset as usize + high.length as usize)
+                                                (high.offset + high.length)
                                                     .saturating_sub(start)
                                                     .saturating_sub(1)
                                             )
                                         )
-                                    } else if high.offset as usize + high_length
+                                    } else if high.offset + high_length
                                         > end - usize::from(end_trimmed)
                                     {
                                         comment_cut_off = true;
@@ -511,18 +495,17 @@ impl<'text> Context<'text> {
                                             "─".repeat(high_length.min(
                                                 end - usize::from(end_trimmed)
                                                     - usize::from(front_trimmed)
-                                                    - high.offset as usize
+                                                    - high.offset
                                             ))
                                         )
                                     } else {
                                         format!(
                                             "╶{}╴",
                                             "─".repeat(
-                                                (usize::from(n) - 2).min(
+                                                (n - 2).min(
                                                     length
                                                         .saturating_sub(
-                                                            (high.offset as usize)
-                                                                .saturating_sub(start)
+                                                            high.offset.saturating_sub(start)
                                                         )
                                                         .saturating_sub(2)
                                                 )
@@ -534,8 +517,7 @@ impl<'text> Context<'text> {
                         )?;
                         // Write out the comment
                         if !comment_cut_off {
-                            let mut index =
-                                (high.offset as usize).saturating_sub(start) + high.length as usize;
+                            let mut index = high.offset.saturating_sub(start) + high.length;
                             for c in high.comment.as_deref().unwrap_or_default().chars() {
                                 if index == max_cols {
                                     index = 0;
@@ -546,10 +528,11 @@ impl<'text> Context<'text> {
                             }
                             last_offset = index; // TODO: fix
                         }
-                        last_offset = high.offset as usize
-                            + usize::from(high.length).max(1).min(
-                                length.saturating_sub((high.offset as usize).saturating_sub(start)),
-                            )
+                        last_offset = high.offset
+                            + high
+                                .length
+                                .max(1)
+                                .min(length.saturating_sub(high.offset.saturating_sub(start)))
                             + high.comment.as_ref().map_or(0, |c| c.chars().count())
                             + usize::from(front_trimmed && self.first_line_offset == 0);
                     }
