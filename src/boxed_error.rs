@@ -8,7 +8,7 @@ use crate::{Context, CustomError, CustomErrorTrait};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoxedError<'text> {
-    content: Box<CustomError<'text>>,
+    pub(crate) content: Box<CustomError<'text>>,
 }
 
 impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
@@ -76,15 +76,17 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     /// Add the given underlying errors, will append to the current list.
     fn add_underlying_errors(
         mut self,
-        underlying_errors: impl IntoIterator<Item = CustomError<'text>>,
+        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text>>>,
     ) -> Self {
-        self.content.underlying_errors.extend(underlying_errors);
+        self.content
+            .underlying_errors
+            .extend(underlying_errors.into_iter().map(|e| e.into()));
         self
     }
 
     /// Add the given underlying error, will append to the current list.
-    fn add_underlying_error(mut self, underlying_error: CustomError<'text>) -> Self {
-        self.content.underlying_errors.push(underlying_error);
+    fn add_underlying_error(mut self, underlying_error: impl Into<CustomError<'text>>) -> Self {
+        self.content.underlying_errors.push(underlying_error.into());
         self
     }
 

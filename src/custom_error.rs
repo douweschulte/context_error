@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error, fmt};
 
-use crate::{Context, CustomErrorTrait};
+use crate::{BoxedError, Context, CustomErrorTrait};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -94,14 +94,18 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 
     /// Add the given underlying errors, will append to the current list.
-    fn add_underlying_errors(mut self, underlying_errors: impl IntoIterator<Item = Self>) -> Self {
-        self.underlying_errors.extend(underlying_errors);
+    fn add_underlying_errors(
+        mut self,
+        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text>>>,
+    ) -> Self {
+        self.underlying_errors
+            .extend(underlying_errors.into_iter().map(|e| e.into()));
         self
     }
 
     /// Add the given underlying error, will append to the current list.
-    fn add_underlying_error(mut self, underlying_error: Self) -> Self {
-        self.underlying_errors.push(underlying_error);
+    fn add_underlying_error(mut self, underlying_error: impl Into<CustomError<'text>>) -> Self {
+        self.underlying_errors.push(underlying_error.into());
         self
     }
 
@@ -224,6 +228,12 @@ impl fmt::Display for CustomError<'_> {
 }
 
 impl error::Error for CustomError<'_> {}
+
+impl<'text> From<BoxedError<'text>> for CustomError<'text> {
+    fn from(value: BoxedError<'text>) -> Self {
+        *value.content
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -49,12 +49,12 @@ pub trait CustomErrorTrait<'text>: Sized + Default {
     #[must_use]
     fn add_underlying_errors(
         self,
-        underlying_errors: impl IntoIterator<Item = CustomError<'text>>,
+        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text>>>,
     ) -> Self;
 
     /// Add the given underlying error, will append to the current list.
     #[must_use]
-    fn add_underlying_error(self, underlying_error: CustomError<'text>) -> Self;
+    fn add_underlying_error(self, underlying_error: impl Into<CustomError<'text>>) -> Self;
 
     /// Set the context line index
     #[must_use]
