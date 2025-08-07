@@ -1,38 +1,34 @@
 use std::{borrow::Cow, error, fmt};
 
-use crate::Context;
-
-/// An error. Stored as a pointer to a structure on the heap to prevent large sizes which could be
-/// detrimental to performance for the happy path.
-pub type BoxedError<'text> = Box<CustomError<'text>>;
+use crate::{Context, CustomErrorTrait};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CustomError<'text> {
     /// The level of the error, defining how it should be handled
-    warning: bool,
+    pub(crate) warning: bool,
     /// A short description of the error, used as title line
-    short_description: Cow<'text, str>,
+    pub(crate) short_description: Cow<'text, str>,
     /// A longer description of the error, presented below the context to give more information and helpful feedback
-    long_description: Cow<'text, str>,
+    pub(crate) long_description: Cow<'text, str>,
     /// Possible suggestion(s) for the indicated text
-    suggestions: Vec<Cow<'text, str>>,
+    pub(crate) suggestions: Vec<Cow<'text, str>>,
     /// Version if applicable
-    version: Cow<'text, str>,
+    pub(crate) version: Cow<'text, str>,
     /// The context, in the most general sense this produces output which leads the user to the right place in the code or file
-    context: Context<'text>,
+    pub(crate) context: Context<'text>,
     /// Underlying errors
-    underlying_errors: Vec<CustomError<'text>>,
+    pub(crate) underlying_errors: Vec<CustomError<'text>>,
 }
 
-impl<'text> CustomError<'text> {
+impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     /// Create a new `CustomError`.
     ///
     /// ## Arguments
     /// * `short_desc` - A short description of the error, used as title line.
     /// * `long_desc` - A longer description of the error, presented below the context to give more information and helpful feedback.
     /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    pub fn error(
+    fn error(
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
         context: Context<'text>,
@@ -52,7 +48,7 @@ impl<'text> CustomError<'text> {
     /// * `short_desc` - A short description of the warning, generally used as title line.
     /// * `long_desc` - A longer description of the warning, presented below the context to give more information and helpful feedback.
     /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    pub fn warning(
+    fn warning(
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
         context: Context<'text>,
@@ -67,8 +63,7 @@ impl<'text> CustomError<'text> {
     }
 
     /// Update with a new long description
-    #[must_use]
-    pub fn long_description(self, long_desc: impl Into<Cow<'text, str>>) -> Self {
+    fn long_description(self, long_desc: impl Into<Cow<'text, str>>) -> Self {
         Self {
             long_description: long_desc.into(),
             ..self
@@ -76,8 +71,7 @@ impl<'text> CustomError<'text> {
     }
 
     /// Extend the suggestions with the given suggestions, does not remove any previously added suggestions
-    #[must_use]
-    pub fn suggestions(
+    fn suggestions(
         mut self,
         suggestions: impl IntoIterator<Item = impl Into<Cow<'text, str>>>,
     ) -> Self {
@@ -87,8 +81,7 @@ impl<'text> CustomError<'text> {
     }
 
     /// Set the version of the underlying format
-    #[must_use]
-    pub fn version(self, version: impl Into<Cow<'text, str>>) -> Self {
+    fn version(self, version: impl Into<Cow<'text, str>>) -> Self {
         Self {
             version: version.into(),
             ..self
@@ -96,31 +89,24 @@ impl<'text> CustomError<'text> {
     }
 
     /// Update with a new context
-    #[must_use]
-    pub fn context(self, context: Context<'text>) -> Self {
+    fn context(self, context: Context<'text>) -> Self {
         Self { context, ..self }
     }
 
     /// Add the given underlying errors, will append to the current list.
-    #[must_use]
-    pub fn add_underlying_errors(
-        mut self,
-        underlying_errors: impl IntoIterator<Item = Self>,
-    ) -> Self {
+    fn add_underlying_errors(mut self, underlying_errors: impl IntoIterator<Item = Self>) -> Self {
         self.underlying_errors.extend(underlying_errors);
         self
     }
 
     /// Add the given underlying error, will append to the current list.
-    #[must_use]
-    pub fn add_underlying_error(mut self, underlying_error: Self) -> Self {
+    fn add_underlying_error(mut self, underlying_error: Self) -> Self {
         self.underlying_errors.push(underlying_error);
         self
     }
 
     /// Set the context line index
-    #[must_use]
-    pub fn overwrite_line_index(self, line_index: u32) -> Self {
+    fn overwrite_line_index(self, line_index: u32) -> Self {
         Self {
             context: self.context.line_index(line_index),
             ..self
@@ -128,40 +114,42 @@ impl<'text> CustomError<'text> {
     }
 
     /// Tests if this errors is a warning
-    pub const fn is_warning(&self) -> bool {
+    fn is_warning(&self) -> bool {
         self.warning
     }
 
     /// Gives the short description or title for this error
-    pub fn get_short_description(&self) -> &str {
+    fn get_short_description(&self) -> &str {
         &self.short_description
     }
 
     /// Gives the long description for this error
-    pub fn get_long_description(&self) -> &str {
+    fn get_long_description(&self) -> &str {
         &self.long_description
     }
 
     /// The suggestions
-    pub fn get_suggestions(&self) -> &[Cow<'text, str>] {
+    fn get_suggestions(&self) -> &[Cow<'text, str>] {
         &self.suggestions
     }
 
     /// The version
-    pub fn get_version(&self) -> &str {
+    fn get_version(&self) -> &str {
         &self.version
     }
 
     /// Gives the context for this error
-    pub const fn get_context(&self) -> &Context<'text> {
+    fn get_context(&self) -> &Context<'text> {
         &self.context
     }
 
     /// Gives the underlying errors
-    pub fn get_underlying_errors(&self) -> &[Self] {
+    fn get_underlying_errors(&self) -> &[Self] {
         &self.underlying_errors
     }
+}
 
+impl<'text> CustomError<'text> {
     /// (Possibly) clone the text to get a static valid error
     pub fn to_owned(self) -> CustomError<'static> {
         CustomError {
@@ -184,7 +172,7 @@ impl<'text> CustomError<'text> {
     }
 
     /// Display this error nicely (used for debug and normal display)
-    fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub(crate) fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             "{}: {}{}{}\n{}",
