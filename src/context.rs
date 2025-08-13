@@ -5,7 +5,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use crate::Highlight;
+use crate::{Coloured, Highlight};
 
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -394,8 +394,9 @@ impl<'text> Context<'text> {
                 if let Some(source) = &self.source {
                     write!(
                         f,
-                        "{} {ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}[{source}{}{}]",
+                        "{} {}{source}{}{}{}",
                         " ".repeat(margin),
+                        format!("{ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}[").blue(),
                         self.line_number
                             .map(|i| format!(":{i}"))
                             .unwrap_or_default(),
@@ -405,10 +406,11 @@ impl<'text> Context<'text> {
                                 && self.highlights.len() == 1
                                 && self.line_number.is_some())
                             .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        ']'.blue(),
                     )?;
                 } else {
-                    write!(f, "{} {TOP_ENDCAP}", " ".repeat(margin))?;
+                    write!(f, "{} {}", " ".repeat(margin), TOP_ENDCAP.blue())?;
                 }
             }
 
@@ -451,9 +453,11 @@ impl<'text> Context<'text> {
 
                     write!(
                         f,
-                        "\n{:<margin$} {TOP_TO_BOTTOM} ",
+                        "\n{:<margin$} {} ",
                         self.line_number
-                            .map_or(String::new(), |n| (n.get() as usize + index).to_string()),
+                            .map_or(String::new(), |n| (n.get() as usize + index).to_string())
+                            .dimmed(),
+                        TOP_TO_BOTTOM.blue(),
                     )?;
 
                     let front_trimmed =
@@ -516,14 +520,16 @@ impl<'text> Context<'text> {
                             start_offset = last_offset;
                         } else {
                             start_string = format!(
-                                "\n{}{HIGHLIGHT_START_LINE}{}",
+                                "\n{}{}{}",
                                 " ".repeat(margin),
+                                HIGHLIGHT_START_LINE.blue(),
                                 if last_line_comment_cut_off {
                                     LEFT_TO_RIGHT
                                 } else {
                                     " "
                                 }
                                 .repeat(usize::from(front_trimmed))
+                                .yellow()
                             );
                             start_offset = start + usize::from(front_trimmed);
                             last_line_comment_cut_off = false;
@@ -576,6 +582,7 @@ impl<'text> Context<'text> {
                                     }
                                 }
                             }
+                            .yellow()
                         )?;
                         // Write out the comment
                         if !comment_cut_off {
@@ -590,7 +597,7 @@ impl<'text> Context<'text> {
                                         f,
                                         "\n{}{}",
                                         " ".repeat(margin),
-                                        symbols::HIGHLIGHT_START_LINE
+                                        HIGHLIGHT_START_LINE.blue()
                                     )?;
                                 }
                                 write!(f, "{c}")?;
@@ -613,13 +620,15 @@ impl<'text> Context<'text> {
                 if let Some(note) = note {
                     write!(
                         f,
-                        "\n{:pad$} {ARC_TOP_TO_RIGHT}{LEFT_TO_RIGHT}[{}]",
+                        "\n{:pad$} {}{}{}",
                         "",
+                        format!("{ARC_TOP_TO_RIGHT}{LEFT_TO_RIGHT}[").blue(),
                         note,
+                        ']'.blue(),
                         pad = margin
                     )?;
                 } else {
-                    write!(f, "\n{:pad$} {BOTTOM_ENDCAP}", "", pad = margin)?;
+                    write!(f, "\n{:pad$} {}", "", BOTTOM_ENDCAP.blue(), pad = margin)?;
                 }
             }
             Ok(())
