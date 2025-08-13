@@ -291,9 +291,11 @@ mod tests {
             fn $name() {
                 let error = $error;
                 let string = error.to_string();
+                #[cfg(not(feature="ascii-only"))]
                 if string != $expected {
                     panic!("Generated error:\n{}\nNot identical to expected:\n{}\nThis is the generated if this actually is correct: {0:?}", string, $expected);
                 }
+                crate::context::test_characters(&string);
             }
         };
     }

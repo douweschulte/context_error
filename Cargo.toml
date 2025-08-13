@@ -13,6 +13,9 @@ categories = ["rust-patterns"]
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 
+[features]
+ascii-only = []
+
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
 ambiguous-glob-reexports = "deny"
