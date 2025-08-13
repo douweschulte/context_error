@@ -314,10 +314,28 @@ impl<'text> Context<'text> {
         self.lines.is_empty() && self.source.is_none() && self.line_number.is_none()
     }
 
+    /// Get the margin needed for the line number (if present)
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation
+    )]
+    pub(crate) fn margin(&self) -> usize {
+        let get_margin = |n| ((n + 1) as f64).log10().max(1.0).ceil() as usize;
+        self.line_number.map_or(0, |n| {
+            get_margin(n.get() as usize + self.lines.lines().count())
+        })
+    }
+
     /// Display this context, with an optional note after the context.
     /// # Errors
     /// If the underlying formatter errors.
-    fn display(&self, f: &mut fmt::Formatter<'_>, note: Option<&str>) -> fmt::Result {
+    pub(crate) fn display(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        note: Option<&str>,
+        merged: Merged,
+    ) -> fmt::Result {
         const HIGHLIGHT_START_LINE: &str = " ╎ ";
 
         if self.is_empty() {
@@ -339,35 +357,29 @@ impl<'text> Context<'text> {
                     .unwrap_or_default()
             )
         } else {
-            #[allow(
-                clippy::cast_sign_loss,
-                clippy::cast_precision_loss,
-                clippy::cast_possible_truncation
-            )]
-            let get_margin = |n| ((n + 1) as f64).log10().max(1.0).ceil() as usize;
-            let margin = self.line_number.map_or(0, |n| {
-                get_margin(n.get() as usize + self.lines.lines().count())
-            });
+            let margin = merged.margin().unwrap_or_else(|| self.margin());
             let max_cols: usize = 100 - margin - 3;
 
-            if let Some(source) = &self.source {
-                write!(
-                    f,
-                    "{} ╭─[{source}{}{}]",
-                    " ".repeat(margin),
-                    self.line_number
-                        .map(|i| format!(":{i}"))
-                        .unwrap_or_default(),
-                    self.highlights
-                        .first()
-                        .filter(|h| h.line == 0
-                            && self.highlights.len() == 1
-                            && self.line_number.is_some())
-                        .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                        .unwrap_or_default()
-                )?;
-            } else {
-                write!(f, "{} ╷", " ".repeat(margin))?;
+            if merged.leading_decoration() {
+                if let Some(source) = &self.source {
+                    write!(
+                        f,
+                        "{} ╭─[{source}{}{}]",
+                        " ".repeat(margin),
+                        self.line_number
+                            .map(|i| format!(":{i}"))
+                            .unwrap_or_default(),
+                        self.highlights
+                            .first()
+                            .filter(|h| h.line == 0
+                                && self.highlights.len() == 1
+                                && self.line_number.is_some())
+                            .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
+                            .unwrap_or_default()
+                    )?;
+                } else {
+                    write!(f, "{} ╷", " ".repeat(margin))?;
+                }
             }
 
             for (index, line) in self.lines.lines().enumerate() {
@@ -378,9 +390,12 @@ impl<'text> Context<'text> {
                     .filter(|h| h.line == index)
                     .inspect(|h| {
                         highlight_range = Some(highlight_range.map_or(
-                            (h.offset, h.offset + h.length),
+                            (h.offset, h.offset.saturating_add(h.length)),
                             |range: (usize, usize)| {
-                                (range.0.min(h.offset), range.1.max(h.offset + h.length))
+                                (
+                                    range.0.min(h.offset),
+                                    range.1.max(h.offset.saturating_add(h.length)),
+                                )
                             },
                         ));
                     })
@@ -444,7 +459,7 @@ impl<'text> Context<'text> {
 
                     for high in highlights.iter().filter(|h| {
                         h.offset <= (end - usize::from(front_trimmed) - usize::from(end_trimmed))
-                            && h.offset + h.length >= start
+                            && h.offset.saturating_add(h.length) >= start
                     }) {
                         // TODO: current layout is not maximally small in number of lines, maybe the highlights could be reordered to place the highest amount of highlights on every line
                         let start_string;
@@ -517,14 +532,17 @@ impl<'text> Context<'text> {
                         )?;
                         // Write out the comment
                         if !comment_cut_off {
-                            let mut index = high.offset.saturating_sub(start) + high.length;
+                            let mut index = high
+                                .offset
+                                .saturating_sub(start)
+                                .saturating_add(high.length);
                             for c in high.comment.as_deref().unwrap_or_default().chars() {
                                 if index == max_cols {
                                     index = 0;
                                     write!(f, "\n{}{HIGHLIGHT_START_LINE}", " ".repeat(margin))?;
                                 }
                                 write!(f, "{c}")?;
-                                index += 1;
+                                index = index.saturating_add(1);
                             }
                             last_offset = index; // TODO: fix
                         }
@@ -539,18 +557,46 @@ impl<'text> Context<'text> {
                 }
             }
             // Last line
-            if let Some(note) = note {
-                write!(f, "\n{:pad$} ╰─[{}]", "", note, pad = margin)
-            } else {
-                write!(f, "\n{:pad$} ╵", "", pad = margin)
+            if merged.trailing_decoration() {
+                if let Some(note) = note {
+                    write!(f, "\n{:pad$} ╰─[{}]", "", note, pad = margin)?;
+                } else {
+                    write!(f, "\n{:pad$} ╵", "", pad = margin)?;
+                }
             }
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Merged {
+    No,
+    First(usize),
+    Middle(usize),
+    Last(usize),
+}
+
+impl Merged {
+    pub(crate) fn leading_decoration(&self) -> bool {
+        matches!(self, Self::No | Self::First(_))
+    }
+
+    pub(crate) fn trailing_decoration(&self) -> bool {
+        matches!(self, Self::No | Self::Last(_))
+    }
+
+    pub(crate) fn margin(&self) -> Option<usize> {
+        match self {
+            Self::First(m) | Self::Middle(m) | Self::Last(m) => Some(*m),
+            Self::No => None,
         }
     }
 }
 
 impl fmt::Display for Context<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None)
+        self.display(f, None, Merged::No)
     }
 }
 
@@ -612,6 +658,8 @@ mod tests {
         => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ╶╴\n  ╵");
     test!(builder_source_line_2: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
         => "  ╭─[path/file.txt:3]\n3 │ …ello world\n  ╎  ╶╴   ╶───╴Rest\n  ╵");
+    test!(builder_line_offset: Context::default().line_index(2).lines(123, "ello world").add_highlight((0, 0, 2)).add_highlight((0, 5.., "Rest")) 
+        => "  ╷\n3 │ …ello world\n  ╎  ╶╴   ╶───╴Rest\n  ╵");
     test!(builder_source_line_offset: Context::default().source("path/file.txt").line_index(2).lines(1, "ello world").add_highlight((0, 0, 2)) 
         => "  ╭─[path/file.txt:3:2]\n3 │ …ello world\n  ╎  ╶╴\n  ╵");
     test!(builder_source_offset: Context::default().source("path/file.txt").lines(1, "ello world").add_highlight((0, 0, 2)) 

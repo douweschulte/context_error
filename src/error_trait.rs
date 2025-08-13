@@ -43,7 +43,18 @@ pub trait CustomErrorTrait<'text>: Sized + Default {
 
     /// Update with a new context
     #[must_use]
-    fn context(self, context: Context<'text>) -> Self;
+    fn replace_context(self, context: Context<'text>) -> Self;
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    #[must_use]
+    fn add_contexts(self, contexts: impl IntoIterator<Item = Context<'text>>) -> Self;
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    fn add_contexts_ref(&mut self, contexts: impl IntoIterator<Item = Context<'text>>);
+
+    /// Add an additional context, this should only be used to merge identical errors together.
+    #[must_use]
+    fn add_context(self, context: Context<'text>) -> Self;
 
     /// Add the given underlying errors, will append to the current list.
     #[must_use]
@@ -56,7 +67,7 @@ pub trait CustomErrorTrait<'text>: Sized + Default {
     #[must_use]
     fn add_underlying_error(self, underlying_error: impl Into<CustomError<'text>>) -> Self;
 
-    /// Set the context line index
+    /// Set the context line index, for every context in this error
     #[must_use]
     fn overwrite_line_index(self, line_index: u32) -> Self;
 
@@ -76,8 +87,30 @@ pub trait CustomErrorTrait<'text>: Sized + Default {
     fn get_version(&self) -> &str;
 
     /// Gives the context for this error
-    fn get_context(&self) -> &Context<'text>;
+    fn get_contexts(&self) -> &[Context<'text>];
 
     /// Gives the underlying errors
     fn get_underlying_errors(&self) -> &[CustomError<'text>];
+
+    /// Check if these two can be merged
+    fn could_merge(&self, other: &Self) -> bool {
+        self.is_warning() == other.is_warning()
+            && self.get_short_description() == other.get_short_description()
+            && self.get_long_description() == other.get_long_description()
+            && self.get_suggestions() == other.get_suggestions()
+            && self.get_underlying_errors() == other.get_underlying_errors()
+            && self.get_version() == other.get_version()
+    }
+}
+
+/// Combine a new error into a stack of existing errors. This merges errors that can be merged
+/// to be able to show a terser error if the same error happened multiple times in the same file.
+pub fn combine_error<'a, E: CustomErrorTrait<'a>>(errors: &mut Vec<E>, error: E) {
+    for e in &mut *errors {
+        if e.could_merge(&error) {
+            e.add_contexts_ref(error.get_contexts().iter().cloned());
+            return;
+        }
+    }
+    errors.push(error);
 }

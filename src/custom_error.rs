@@ -16,7 +16,7 @@ pub struct CustomError<'text> {
     /// Version if applicable
     pub(crate) version: Cow<'text, str>,
     /// The context, in the most general sense this produces output which leads the user to the right place in the code or file
-    pub(crate) context: Context<'text>,
+    pub(crate) contexts: Vec<Context<'text>>,
     /// Underlying errors
     pub(crate) underlying_errors: Vec<CustomError<'text>>,
 }
@@ -37,7 +37,7 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
             warning: false,
             short_description: short_desc.into(),
             long_description: long_desc.into(),
-            context,
+            contexts: vec![context],
             ..Default::default()
         }
     }
@@ -57,7 +57,7 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
             warning: true,
             short_description: short_desc.into(),
             long_description: long_desc.into(),
-            context,
+            contexts: vec![context],
             ..Default::default()
         }
     }
@@ -89,8 +89,28 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 
     /// Update with a new context
-    fn context(self, context: Context<'text>) -> Self {
-        Self { context, ..self }
+    fn replace_context(self, context: Context<'text>) -> Self {
+        Self {
+            contexts: vec![context],
+            ..self
+        }
+    }
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    fn add_contexts(mut self, contexts: impl IntoIterator<Item = Context<'text>>) -> Self {
+        self.contexts.extend(contexts);
+        self
+    }
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    fn add_contexts_ref(&mut self, contexts: impl IntoIterator<Item = Context<'text>>) {
+        self.contexts.extend(contexts);
+    }
+
+    /// Add an additional context, this should only be used to merge identical errors together.
+    fn add_context(mut self, context: Context<'text>) -> Self {
+        self.contexts.push(context);
+        self
     }
 
     /// Add the given underlying errors, will append to the current list.
@@ -112,7 +132,11 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     /// Set the context line index
     fn overwrite_line_index(self, line_index: u32) -> Self {
         Self {
-            context: self.context.line_index(line_index),
+            contexts: self
+                .contexts
+                .into_iter()
+                .map(|c| c.line_index(line_index))
+                .collect(),
             ..self
         }
     }
@@ -143,8 +167,8 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 
     /// Gives the context for this error
-    fn get_context(&self) -> &Context<'text> {
-        &self.context
+    fn get_contexts(&self) -> &[Context<'text>] {
+        &self.contexts
     }
 
     /// Gives the underlying errors
@@ -165,7 +189,7 @@ impl<'text> CustomError<'text> {
                 .map(|p| Cow::Owned(p.into_owned()))
                 .collect(),
             version: Cow::Owned(self.version.into_owned()),
-            context: self.context.to_owned(),
+            contexts: self.contexts.into_iter().map(|c| c.to_owned()).collect(),
             underlying_errors: self
                 .underlying_errors
                 .into_iter()
@@ -179,13 +203,34 @@ impl<'text> CustomError<'text> {
     pub(crate) fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{}: {}{}{}\n{}",
+            "{}: {}",
             if self.warning { "warning" } else { "error" },
             self.short_description,
-            if self.context.is_empty() { "" } else { "\n" },
-            self.context,
-            self.long_description
         )?;
+        let last = self.contexts.len().saturating_sub(1);
+        let margin = self
+            .contexts
+            .iter()
+            .map(|c| c.margin())
+            .max()
+            .unwrap_or_default();
+        let mut first = true;
+        for (index, context) in self.contexts.iter().enumerate() {
+            if !context.is_empty() {
+                let merged = match (first, index == last) {
+                    (true, true) => crate::Merged::No,
+                    (true, false) => crate::Merged::First(margin),
+                    (false, false) => crate::Merged::Middle(margin),
+                    (false, true) => crate::Merged::Last(margin),
+                };
+                context.display(f, None, merged)?;
+                if merged.trailing_decoration() {
+                    writeln!(f)?
+                };
+                first = false;
+            }
+        }
+        writeln!(f, "{}", self.long_description)?;
         match self.suggestions.len() {
             0 => Ok(()),
             1 => writeln!(f, "Did you mean: {}?", self.suggestions[0]),
@@ -264,6 +309,11 @@ mod tests {
         => "error: Invalid path\n ╷\n │ fileee.txt\n ╵\nThis file does not exist\nDid you mean any of: file.txt, filet.txt?\n");
     test!(version: CustomError::error("Invalid number", "This columns is not a number", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9))).version("Software AB v2025.42") 
         => "error: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis columns is not a number\nVersion: Software AB v2025.42\n");
+    test!(merged: CustomError::error("Invalid number", "This columns is not a number", Context::default().line_index(2).lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
+            .version("Software AB v2025.42")
+            .add_context(Context::default().line_index(12).lines(0, "null,7oo1,NO,-1,23.11").add_highlight((0, 5..9)))
+            .add_context(Context::default().line_index(34).lines(0, "HOMOSAPIENS,12i1,YES,,1.23").add_highlight((0, 12..16)))
+        => "error: Invalid number\n   ╷\n3  │ null,80o0,YES,,67.77\n   ╎      ╶──╴\n13 │ null,7oo1,NO,-1,23.11\n   ╎      ╶──╴\n35 │ HOMOSAPIENS,12i1,YES,,1.23\n   ╎             ╶──╴\n   ╵\nThis columns is not a number\nVersion: Software AB v2025.42\n");
 
     const TEXT: &str = "number";
 

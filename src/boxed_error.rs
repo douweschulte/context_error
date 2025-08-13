@@ -68,8 +68,25 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     }
 
     /// Update with a new context
-    fn context(mut self, context: Context<'text>) -> Self {
-        self.content.context = context;
+    fn replace_context(mut self, context: Context<'text>) -> Self {
+        self.content.contexts = vec![context];
+        self
+    }
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    fn add_contexts(mut self, contexts: impl IntoIterator<Item = Context<'text>>) -> Self {
+        self.content.contexts.extend(contexts);
+        self
+    }
+
+    /// Add an additional contexts, this should only be used to merge identical errors together.
+    fn add_contexts_ref(&mut self, contexts: impl IntoIterator<Item = Context<'text>>) {
+        self.content.contexts.extend(contexts);
+    }
+
+    /// Add an additional context, this should only be used to merge identical errors together.
+    fn add_context(mut self, context: Context<'text>) -> Self {
+        self.content.contexts.push(context);
         self
     }
 
@@ -92,7 +109,12 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
 
     /// Set the context line index
     fn overwrite_line_index(mut self, line_index: u32) -> Self {
-        self.content.context = self.content.context.line_index(line_index);
+        self.content.contexts = self
+            .content
+            .contexts
+            .into_iter()
+            .map(|c| c.line_index(line_index))
+            .collect();
         self
     }
 
@@ -122,8 +144,8 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     }
 
     /// Gives the context for this error
-    fn get_context(&self) -> &Context<'text> {
-        &self.content.context
+    fn get_contexts(&self) -> &[Context<'text>] {
+        &self.content.contexts
     }
 
     /// Gives the underlying errors
