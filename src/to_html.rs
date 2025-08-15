@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::{Context, CustomError};
+use crate::{BoxedError, Context, CustomError};
 
 pub trait ToHtml {
     fn display_html(&self, f: &mut impl fmt::Write) -> fmt::Result;
@@ -9,6 +9,12 @@ pub trait ToHtml {
         self.display_html(&mut string)
             .expect("Errored while writing to string");
         string
+    }
+}
+
+impl ToHtml for BoxedError<'_> {
+    fn display_html(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        self.content.display_html(f)
     }
 }
 
