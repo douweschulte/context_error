@@ -45,7 +45,7 @@ where
     errors: Vec<E>,
 }
 
-impl<'a, Iter, T, E> Iterator for CombineErrors<Iter, T, E>
+impl<'a, Iter, T, E> Iterator for &mut CombineErrors<Iter, T, E>
 where
     Iter: Iterator<Item = Result<T, E>>,
     E: CustomErrorTrait<'a>,
