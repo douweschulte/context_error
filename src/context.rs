@@ -12,15 +12,15 @@ use crate::{Coloured, Highlight};
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Context<'text> {
     /// The source or path of the text
-    source: Option<Cow<'text, str>>,
+    pub(crate) source: Option<Cow<'text, str>>,
     /// 1 based index of the first line (0 is used as niche for the None case)
-    line_number: Option<NonZeroU32>,
+    pub(crate) line_number: Option<NonZeroU32>,
     /// Offset of the first line (in characters) before the slice starts
-    first_line_offset: u32,
+    pub(crate) first_line_offset: u32,
     /// The text of this context, multiline text is handled by [str::lines]
-    lines: Cow<'text, str>,
+    pub(crate) lines: Cow<'text, str>,
     /// The highlights, required to be sorted by line first, offset second
-    highlights: Vec<Highlight<'text>>,
+    pub(crate) highlights: Vec<Highlight<'text>>,
 }
 
 /// Convenience wrappers using common patterns

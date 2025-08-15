@@ -14,6 +14,8 @@ mod custom_error;
 mod error_trait;
 /// A highlight on a line
 mod highlight;
+/// Display an error as HTML
+mod to_html;
 
 pub use boxed_error::*;
 use coloured::*;
@@ -22,3 +24,4 @@ pub use context::*;
 pub use custom_error::*;
 pub use error_trait::*;
 pub use highlight::*;
+pub use to_html::*;
