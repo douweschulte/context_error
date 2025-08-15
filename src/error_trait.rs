@@ -102,15 +102,3 @@ pub trait CustomErrorTrait<'text>: Sized + Default {
             && self.get_version() == other.get_version()
     }
 }
-
-/// Combine a new error into a stack of existing errors. This merges errors that can be merged
-/// to be able to show a terser error if the same error happened multiple times in the same file.
-pub fn combine_error<'a, E: CustomErrorTrait<'a>>(errors: &mut Vec<E>, error: E) {
-    for e in &mut *errors {
-        if e.could_merge(&error) {
-            e.add_contexts_ref(error.get_contexts().iter().cloned());
-            return;
-        }
-    }
-    errors.push(error);
-}
