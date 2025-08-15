@@ -20,23 +20,23 @@ impl ToHtml for BoxedError<'_> {
 
 impl ToHtml for CustomError<'_> {
     fn display_html(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        writeln!(
+        write!(
             f,
             "<div class='{}'>",
             if self.warning { "warning" } else { "error" },
         )?;
 
-        writeln!(f, "<p class='title'>{}</p>", self.short_description)?;
+        write!(f, "<p class='title'>{}</p>", self.short_description)?;
 
-        writeln!(f, "<div class='contexts'>")?;
+        write!(f, "<div class='contexts'>")?;
         for context in &self.contexts {
             context.display_html(f)?;
         }
-        writeln!(f, "</div>")?;
+        write!(f, "</div>")?;
 
-        writeln!(f, "<p class='description'>{}</p>", self.long_description)?;
+        write!(f, "<p class='description'>{}</p>", self.long_description)?;
         if !self.suggestions.is_empty() {
-            writeln!(
+            write!(
                 f,
                 "<p>Did you mean{}?</p><ul>",
                 if self.suggestions.len() == 1 {
@@ -46,32 +46,32 @@ impl ToHtml for CustomError<'_> {
                 }
             )?;
             for suggestion in &self.suggestions {
-                writeln!(f, "<li class='suggestion'>{suggestion}</li>")?;
+                write!(f, "<li class='suggestion'>{suggestion}</li>")?;
             }
-            writeln!(f, "</ul>")?;
+            write!(f, "</ul>")?;
         }
         if !self.version.is_empty() {
-            writeln!(
+            write!(
                 f,
                 "<p class='version'>Version: <span class='version-text'>{}</span></p>",
                 self.version
             )?;
         }
         if !self.underlying_errors.is_empty() {
-            writeln!(
+            write!(
                 f,
-                "<p>Underlying error{}?</p><ul>",
+                "<label><input type='checkbox'></input> Underlying error{}</label><ul>",
                 if self.suggestions.len() == 1 { "" } else { "s" }
             )?;
             for error in &self.underlying_errors {
-                writeln!(f, "<li class='underlying_error'>")?;
+                write!(f, "<li class='underlying_error'>")?;
                 error.display_html(f)?;
-                writeln!(f, "</li>")?;
+                write!(f, "</li>")?;
             }
-            writeln!(f, "</ul>")?;
+            write!(f, "</ul>")?;
         }
 
-        writeln!(f, "</div>",)?;
+        write!(f, "</div>",)?;
         Ok(())
     }
 }
@@ -81,10 +81,10 @@ impl ToHtml for Context<'_> {
         if self.is_empty() {
             Ok(())
         } else if self.lines.is_empty() {
-            writeln!(f, "<div class='context'>")?;
-            writeln!(
+            write!(f, "<div class='context'>")?;
+            write!(
                 f,
-                "<p class='source'>{}{}{}</p>",
+                "<span class='source'>{}{}{}</span>",
                 self.source.as_deref().unwrap_or_default(),
                 self.line_number
                     .map(|i| format!(":{i}"))
@@ -97,14 +97,14 @@ impl ToHtml for Context<'_> {
                     .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
                     .unwrap_or_default()
             )?;
-            writeln!(f, "</div>")?;
+            write!(f, "</div>")?;
             Ok(())
         } else {
-            writeln!(f, "<div class='context'>")?;
+            write!(f, "<div class='context'>")?;
             if let Some(source) = &self.source {
-                writeln!(
+                write!(
                     f,
-                    "<p class='source'>{source}{}{}</p>",
+                    "<span class='source'>{source}{}{}</span>",
                     self.line_number
                         .map(|i| format!(":{i}"))
                         .unwrap_or_default(),
@@ -136,7 +136,7 @@ impl ToHtml for Context<'_> {
                     })
                     .collect();
                 highlights.sort_by(|a, b| a.offset.cmp(&b.offset));
-                let max_cols = 80;
+                let max_cols = 195;
 
                 let line_length = line.chars().count();
                 let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
@@ -144,10 +144,23 @@ impl ToHtml for Context<'_> {
                     |(start, end)| {
                         (
                             start.saturating_sub(5),
-                            end.saturating_add(5).min(line_length),
+                            end.saturating_add(5)
+                                .min(line_length)
+                                .min(start.saturating_sub(5) + max_cols),
                         )
                     },
                 );
+
+                write!(
+                    f,
+                    "<span class='line-number'>{}</span><span class='line'>",
+                    self.line_number
+                        .map_or(String::new(), |n| (n.get() as usize + index).to_string())
+                )?;
+
+                if displayed_range.0 != 0 {
+                    write!(f, "…")?;
+                }
 
                 for (char_index, c) in line
                     .chars()
@@ -157,20 +170,28 @@ impl ToHtml for Context<'_> {
                 {
                     for high in &highlights {
                         if high.offset == char_index {
-                            writeln!(
+                            write!(
                                 f,
                                 "<span class='highlight' title='{}'>",
                                 high.comment.as_deref().unwrap_or_default()
                             )?;
                         }
-                        writeln!(f, "{c}")?;
+                    }
+                    write!(f, "{c}")?;
+                    for high in &highlights {
                         if high.offset + high.length == char_index {
-                            writeln!(f, "</span>")?;
+                            write!(f, "</span>")?;
                         }
                     }
                 }
+
+                if displayed_range.1 != line_length {
+                    write!(f, "…")?;
+                }
+
+                write!(f, "</span>")?;
             }
-            writeln!(f, "</div>")?;
+            write!(f, "</div>")?;
             Ok(())
         }
     }
