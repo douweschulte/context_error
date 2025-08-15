@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error, fmt};
 
-use crate::{BoxedError, Context, CustomErrorTrait};
+use crate::{BoxedError, Coloured, Context, CustomErrorTrait};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -204,7 +204,11 @@ impl<'text> CustomError<'text> {
         writeln!(
             f,
             "{}: {}",
-            if self.warning { "warning" } else { "error" },
+            if self.warning {
+                "warning".yellow()
+            } else {
+                "error".red()
+            },
             self.short_description,
         )?;
         let last = self.contexts.len().saturating_sub(1);
@@ -233,18 +237,29 @@ impl<'text> CustomError<'text> {
         writeln!(f, "{}", self.long_description)?;
         match self.suggestions.len() {
             0 => Ok(()),
-            1 => writeln!(f, "Did you mean: {}?", self.suggestions[0]),
-            _ => writeln!(f, "Did you mean any of: {}?", self.suggestions.join(", ")),
+            1 => writeln!(f, "{}: {}?", "Did you mean".blue(), self.suggestions[0]),
+            _ => writeln!(
+                f,
+                "{}: {}?",
+                "Did you mean any of".blue(),
+                self.suggestions.join(", ")
+            ),
         }?;
         if !self.version.is_empty() {
-            writeln!(f, "Version: {}", self.version)?;
+            writeln!(f, "{}: {}", "Version".green(), self.version)?;
         }
         match self.underlying_errors.len() {
             0 => Ok(()),
-            1 => writeln!(f, "Underlying error:\n{}", self.underlying_errors[0]),
+            1 => writeln!(
+                f,
+                "{}:\n{}",
+                "Underlying error".yellow(),
+                self.underlying_errors[0]
+            ),
             _ => writeln!(
                 f,
-                "Underlying errors:\n{}",
+                "{}:\n{}",
+                "Underlying errors".yellow(),
                 self.underlying_errors
                     .iter()
                     .fold((true, String::new()), |(first, mut acc), el| {
@@ -291,9 +306,11 @@ mod tests {
             fn $name() {
                 let error = $error;
                 let string = error.to_string();
+                #[cfg(not(feature="ascii-only"))]
                 if string != $expected {
                     panic!("Generated error:\n{}\nNot identical to expected:\n{}\nThis is the generated if this actually is correct: {0:?}", string, $expected);
                 }
+                crate::context::test_characters(&string);
             }
         };
     }

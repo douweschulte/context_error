@@ -5,7 +5,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use crate::Highlight;
+use crate::{Coloured, Highlight};
 
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -336,7 +336,37 @@ impl<'text> Context<'text> {
         note: Option<&str>,
         merged: Merged,
     ) -> fmt::Result {
-        const HIGHLIGHT_START_LINE: &str = " ╎ ";
+        #[cfg(not(feature = "ascii-only"))]
+        mod symbols {
+            pub const HIGHLIGHT_START_LINE: &str = " ╎ ";
+            pub const ARC_BOTTOM_TO_RIGHT: char = '╭';
+            pub const ARC_TOP_TO_RIGHT: char = '╰';
+            pub const LEFT_TO_RIGHT: &str = "─";
+            pub const TOP_ENDCAP: char = '╷';
+            pub const RIGHT_ENDCAP: char = '╴';
+            pub const LEFT_ENDCAP: char = '╶';
+            pub const BOTTOM_ENDCAP: char = '╵';
+            pub const TOP_TO_BOTTOM: char = '│';
+            pub const ELLIPSIS: char = '…';
+            pub const LENGTH_ZERO_HIGHLIGHT: char = 'ò';
+            pub const LENGTH_ONE_HIGHLIGHT: char = '⁃';
+        }
+        #[cfg(feature = "ascii-only")]
+        mod symbols {
+            pub const HIGHLIGHT_START_LINE: &str = " * ";
+            pub const ARC_BOTTOM_TO_RIGHT: char = '+';
+            pub const ARC_TOP_TO_RIGHT: char = '+';
+            pub const LEFT_TO_RIGHT: &str = "-";
+            pub const TOP_ENDCAP: char = '.';
+            pub const RIGHT_ENDCAP: char = '-';
+            pub const LEFT_ENDCAP: char = '-';
+            pub const BOTTOM_ENDCAP: char = '\'';
+            pub const TOP_TO_BOTTOM: char = '|';
+            pub const ELLIPSIS: char = '~';
+            pub const LENGTH_ZERO_HIGHLIGHT: char = '^';
+            pub const LENGTH_ONE_HIGHLIGHT: char = '-';
+        }
+        use symbols::*;
 
         if self.is_empty() {
             Ok(())
@@ -364,8 +394,9 @@ impl<'text> Context<'text> {
                 if let Some(source) = &self.source {
                     write!(
                         f,
-                        "{} ╭─[{source}{}{}]",
+                        "{} {}{source}{}{}{}",
                         " ".repeat(margin),
+                        format!("{ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}[").blue(),
                         self.line_number
                             .map(|i| format!(":{i}"))
                             .unwrap_or_default(),
@@ -375,10 +406,11 @@ impl<'text> Context<'text> {
                                 && self.highlights.len() == 1
                                 && self.line_number.is_some())
                             .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        ']'.blue(),
                     )?;
                 } else {
-                    write!(f, "{} ╷", " ".repeat(margin))?;
+                    write!(f, "{} {}", " ".repeat(margin), TOP_ENDCAP.blue())?;
                 }
             }
 
@@ -421,16 +453,18 @@ impl<'text> Context<'text> {
 
                     write!(
                         f,
-                        "\n{:<margin$} │ ",
+                        "\n{:<margin$} {} ",
                         self.line_number
-                            .map_or(String::new(), |n| (n.get() as usize + index).to_string()),
+                            .map_or(String::new(), |n| (n.get() as usize + index).to_string())
+                            .dimmed(),
+                        TOP_TO_BOTTOM.blue(),
                     )?;
 
                     let front_trimmed =
                         first && (index == 0 && self.first_line_offset > 0) || start != 0;
                     let end_trimmed = end < line_length;
                     if front_trimmed {
-                        write!(f, "…")?;
+                        write!(f, "{ELLIPSIS}")?;
                     }
                     first = false;
                     for c in
@@ -440,18 +474,35 @@ impl<'text> Context<'text> {
                             ),
                         ))
                     {
-                        write!(
-                            f,
-                            "{}",
-                            match c {
-                                c if c as u32 <= 31 => char::try_from(c as u32 + 0x2400).unwrap(),
-                                '\u{007F}' => '␡',
-                                c => c,
-                            }
-                        )?;
+                        #[cfg(not(feature = "ascii-only"))]
+                        {
+                            write!(
+                                f,
+                                "{}",
+                                match c {
+                                    c if c as u32 <= 31 =>
+                                        char::try_from(c as u32 + 0x2400).unwrap(),
+                                    '\u{007F}' => '␡',
+                                    c => c,
+                                },
+                            )?;
+                        }
+                        #[cfg(feature = "ascii-only")]
+                        {
+                            write!(
+                                f,
+                                "{}",
+                                match c {
+                                    '\t' => ' ',
+                                    '\u{007F}' => '\u{001A}',
+                                    c if !c.is_ascii() || c as u32 <= 31 => '\u{001A}',
+                                    c => c,
+                                },
+                            )?;
+                        }
                     }
                     if end_trimmed {
-                        write!(f, "…")?;
+                        write!(f, "{ELLIPSIS}")?;
                     }
 
                     // Display the highlights that are placed on this chunk
@@ -469,14 +520,16 @@ impl<'text> Context<'text> {
                             start_offset = last_offset;
                         } else {
                             start_string = format!(
-                                "\n{}{HIGHLIGHT_START_LINE}{}",
+                                "\n{}{}{}",
                                 " ".repeat(margin),
+                                HIGHLIGHT_START_LINE.blue(),
                                 if last_line_comment_cut_off {
-                                    "─"
+                                    LEFT_TO_RIGHT
                                 } else {
                                     " "
                                 }
                                 .repeat(usize::from(front_trimmed))
+                                .yellow()
                             );
                             start_offset = start + usize::from(front_trimmed);
                             last_line_comment_cut_off = false;
@@ -487,14 +540,14 @@ impl<'text> Context<'text> {
                             "{start_string}{}{}",
                             " ".repeat(high.offset.saturating_sub(start_offset)),
                             match high.length {
-                                0 => "ò".to_string(),
-                                1 => "⁃".to_string(),
+                                0 => LENGTH_ZERO_HIGHLIGHT.to_string(),
+                                1 => LENGTH_ONE_HIGHLIGHT.to_string(),
                                 n => {
                                     let high_length = high.length.min(line_length - high.offset);
                                     if high.offset < start {
                                         format!(
-                                            "{}╴",
-                                            "─".repeat(
+                                            "{}{RIGHT_ENDCAP}",
+                                            LEFT_TO_RIGHT.repeat(
                                                 (high.offset + high.length)
                                                     .saturating_sub(start)
                                                     .saturating_sub(1)
@@ -506,8 +559,8 @@ impl<'text> Context<'text> {
                                         comment_cut_off = true;
                                         last_line_comment_cut_off = true;
                                         format!(
-                                            "╶{}",
-                                            "─".repeat(high_length.min(
+                                            "{LEFT_ENDCAP}{}",
+                                            LEFT_TO_RIGHT.repeat(high_length.min(
                                                 end - usize::from(end_trimmed)
                                                     - usize::from(front_trimmed)
                                                     - high.offset
@@ -515,8 +568,8 @@ impl<'text> Context<'text> {
                                         )
                                     } else {
                                         format!(
-                                            "╶{}╴",
-                                            "─".repeat(
+                                            "{LEFT_ENDCAP}{}{RIGHT_ENDCAP}",
+                                            LEFT_TO_RIGHT.repeat(
                                                 (n - 2).min(
                                                     length
                                                         .saturating_sub(
@@ -529,6 +582,7 @@ impl<'text> Context<'text> {
                                     }
                                 }
                             }
+                            .yellow()
                         )?;
                         // Write out the comment
                         if !comment_cut_off {
@@ -539,7 +593,12 @@ impl<'text> Context<'text> {
                             for c in high.comment.as_deref().unwrap_or_default().chars() {
                                 if index == max_cols {
                                     index = 0;
-                                    write!(f, "\n{}{HIGHLIGHT_START_LINE}", " ".repeat(margin))?;
+                                    write!(
+                                        f,
+                                        "\n{}{}",
+                                        " ".repeat(margin),
+                                        HIGHLIGHT_START_LINE.blue()
+                                    )?;
                                 }
                                 write!(f, "{c}")?;
                                 index = index.saturating_add(1);
@@ -559,9 +618,17 @@ impl<'text> Context<'text> {
             // Last line
             if merged.trailing_decoration() {
                 if let Some(note) = note {
-                    write!(f, "\n{:pad$} ╰─[{}]", "", note, pad = margin)?;
+                    write!(
+                        f,
+                        "\n{:pad$} {}{}{}",
+                        "",
+                        format!("{ARC_TOP_TO_RIGHT}{LEFT_TO_RIGHT}[").blue(),
+                        note,
+                        ']'.blue(),
+                        pad = margin
+                    )?;
                 } else {
-                    write!(f, "\n{:pad$} ╵", "", pad = margin)?;
+                    write!(f, "\n{:pad$} {}", "", BOTTOM_ENDCAP.blue(), pad = margin)?;
                 }
             }
             Ok(())
@@ -612,6 +679,25 @@ pub struct FilePosition<'a> {
 }
 
 #[cfg(test)]
+pub(crate) fn test_characters(text: &str) {
+    for c in text.chars() {
+        #[cfg(feature = "ascii-only")] // Allow the escape character in ASCII output
+        if c == '\u{001A}' {
+            continue;
+        }
+        assert!(
+            c == '\n' || (c as u32 > 31 && c != '\u{007F}'),
+            "{c} ({}) is invalid range\n{text}",
+            c as u32
+        );
+        #[cfg(feature = "ascii-only")]
+        {
+            assert!(c.is_ascii(), "{c} is not inside the ASCII range\n{text}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -621,9 +707,11 @@ mod tests {
             fn $name() {
                 let context = $context;
                 let string = context.to_string();
+                #[cfg(not(feature="ascii-only"))]
                 if string != $expected {
                     panic!("Generated context:\n{}\nNot identical to expected:\n{}\nThis is the generated string if this actually is correct: {0:?}", string, $expected);
                 }
+                test_characters(&string);
             }
         };
     }

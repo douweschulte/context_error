@@ -2,6 +2,8 @@
 
 /// A boxed variant of the error, to ensure a small stack space
 mod boxed_error;
+/// Wrapping the colored functionality
+mod colored;
 /// Helper methods to merge identical errors
 mod combine;
 /// The context of an error
@@ -14,6 +16,7 @@ mod error_trait;
 mod highlight;
 
 pub use boxed_error::*;
+use colored::*;
 pub use combine::*;
 pub use context::*;
 pub use custom_error::*;
