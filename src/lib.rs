@@ -11,20 +11,17 @@ mod context;
 /// An error with all its properties
 mod custom_error;
 /// Payload trait for error payloads
-mod error_enum;
+mod error_kind;
 /// A trait to define errors
 mod error_trait;
 /// A highlight on a line
 mod highlight;
-/// Display an error as HTML
-mod to_html;
 
 pub use boxed_error::*;
 use coloured::*;
 pub use combine::*;
 pub use context::*;
 pub use custom_error::*;
-pub use error_enum::*;
+pub use error_kind::*;
 pub use error_trait::*;
 pub use highlight::*;
-pub use to_html::*;

@@ -1,12 +1,12 @@
 use std::{borrow::Cow, error, fmt};
 
-use crate::{BoxedError, Coloured, Context, CustomErrorTrait};
+use crate::{BoxedError, Context, CustomErrorTrait, ErrorKind};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CustomError<'text> {
-    /// The level of the error, defining how it should be handled
-    pub(crate) warning: bool,
+pub struct CustomError<'text, Kind> {
+    /// The kind of the error
+    pub(crate) kind: Kind,
     /// A short description of the error, used as title line
     pub(crate) short_description: Cow<'text, str>,
     /// A longer description of the error, presented below the context to give more information and helpful feedback
@@ -18,43 +18,26 @@ pub struct CustomError<'text> {
     /// The context, in the most general sense this produces output which leads the user to the right place in the code or file
     pub(crate) contexts: Vec<Context<'text>>,
     /// Underlying errors
-    pub(crate) underlying_errors: Vec<CustomError<'text>>,
+    pub(crate) underlying_errors: Vec<CustomError<'text, Kind>>,
 }
 
-impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
+impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for CustomError<'text, Kind> {
+    type UnderlyingError = Self;
+
     /// Create a new `CustomError`.
     ///
     /// ## Arguments
     /// * `short_desc` - A short description of the error, used as title line.
     /// * `long_desc` - A longer description of the error, presented below the context to give more information and helpful feedback.
     /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    fn error(
+    fn new(
+        kind: Kind,
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
         context: Context<'text>,
     ) -> Self {
         CustomError {
-            warning: false,
-            short_description: short_desc.into(),
-            long_description: long_desc.into(),
-            contexts: vec![context],
-            ..Default::default()
-        }
-    }
-
-    /// Create a new `CustomError`.
-    ///
-    /// ## Arguments
-    /// * `short_desc` - A short description of the warning, generally used as title line.
-    /// * `long_desc` - A longer description of the warning, presented below the context to give more information and helpful feedback.
-    /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    fn warning(
-        short_desc: impl Into<Cow<'text, str>>,
-        long_desc: impl Into<Cow<'text, str>>,
-        context: Context<'text>,
-    ) -> Self {
-        Self {
-            warning: true,
+            kind,
             short_description: short_desc.into(),
             long_description: long_desc.into(),
             contexts: vec![context],
@@ -116,7 +99,7 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     /// Add the given underlying errors, will append to the current list.
     fn add_underlying_errors(
         mut self,
-        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text>>>,
+        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text, Kind>>>,
     ) -> Self {
         self.underlying_errors
             .extend(underlying_errors.into_iter().map(|e| e.into()));
@@ -124,7 +107,10 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 
     /// Add the given underlying error, will append to the current list.
-    fn add_underlying_error(mut self, underlying_error: impl Into<CustomError<'text>>) -> Self {
+    fn add_underlying_error(
+        mut self,
+        underlying_error: impl Into<CustomError<'text, Kind>>,
+    ) -> Self {
         self.underlying_errors.push(underlying_error.into());
         self
     }
@@ -142,8 +128,8 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 
     /// Tests if this errors is a warning
-    fn is_warning(&self) -> bool {
-        self.warning
+    fn get_kind(&self) -> &Kind {
+        &self.kind
     }
 
     /// Gives the short description or title for this error
@@ -177,9 +163,9 @@ impl<'text> CustomErrorTrait<'text> for CustomError<'text> {
     }
 }
 
-impl<'text> CustomError<'text> {
+impl<'text, Kind: ErrorKind> CustomError<'text, Kind> {
     /// (Possibly) clone the text to get a static valid error
-    pub fn to_owned(self) -> CustomError<'static> {
+    pub fn to_owned(self) -> CustomError<'static, Kind> {
         CustomError {
             short_description: Cow::Owned(self.short_description.into_owned()),
             long_description: Cow::Owned(self.long_description.into_owned()),
@@ -198,99 +184,24 @@ impl<'text> CustomError<'text> {
             ..self
         }
     }
-
-    /// Display this error nicely (used for debug and normal display)
-    pub(crate) fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "{}: {}",
-            if self.warning {
-                "warning".yellow()
-            } else {
-                "error".red()
-            },
-            self.short_description,
-        )?;
-        let last = self.contexts.len().saturating_sub(1);
-        let margin = self
-            .contexts
-            .iter()
-            .map(|c| c.margin())
-            .max()
-            .unwrap_or_default();
-        let mut first = true;
-        for (index, context) in self.contexts.iter().enumerate() {
-            if !context.is_empty() {
-                let merged = match (first, index == last) {
-                    (true, true) => crate::Merged::No,
-                    (true, false) => crate::Merged::First(margin),
-                    (false, false) => crate::Merged::Middle(margin),
-                    (false, true) => crate::Merged::Last(margin),
-                };
-                context.display(f, None, merged)?;
-                if merged.trailing_decoration() {
-                    writeln!(f)?
-                };
-                first = false;
-            }
-        }
-        writeln!(f, "{}", self.long_description)?;
-        match self.suggestions.len() {
-            0 => Ok(()),
-            1 => writeln!(f, "{}: {}?", "Did you mean".blue(), self.suggestions[0]),
-            _ => writeln!(
-                f,
-                "{}: {}?",
-                "Did you mean any of".blue(),
-                self.suggestions.join(", ")
-            ),
-        }?;
-        if !self.version.is_empty() {
-            writeln!(f, "{}: {}", "Version".green(), self.version)?;
-        }
-        match self.underlying_errors.len() {
-            0 => Ok(()),
-            1 => writeln!(
-                f,
-                "{}:\n{}",
-                "Underlying error".yellow(),
-                self.underlying_errors[0]
-            ),
-            _ => writeln!(
-                f,
-                "{}:\n{}",
-                "Underlying errors".yellow(),
-                self.underlying_errors
-                    .iter()
-                    .fold((true, String::new()), |(first, mut acc), el| {
-                        if !first {
-                            acc.push('\n');
-                        }
-                        acc.push_str(&el.to_string());
-                        (false, acc)
-                    })
-                    .1
-            ),
-        }
-    }
 }
 
-impl fmt::Debug for CustomError<'_> {
+impl<Kind: ErrorKind> fmt::Debug for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f)
+        self.display(f, None)
     }
 }
 
-impl fmt::Display for CustomError<'_> {
+impl<Kind: ErrorKind> fmt::Display for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f)
+        self.display(f, None)
     }
 }
 
-impl error::Error for CustomError<'_> {}
+impl<Kind: ErrorKind> error::Error for CustomError<'_, Kind> {}
 
-impl<'text> From<BoxedError<'text>> for CustomError<'text> {
-    fn from(value: BoxedError<'text>) -> Self {
+impl<'text, Kind: ErrorKind> From<BoxedError<'text, Kind>> for CustomError<'text, Kind> {
+    fn from(value: BoxedError<'text, Kind>) -> Self {
         *value.content
     }
 }
@@ -298,7 +209,7 @@ impl<'text> From<BoxedError<'text>> for CustomError<'text> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FilePosition;
+    use crate::{BasicKind, FilePosition};
 
     macro_rules! test {
         ($name:ident: $error:expr => $expected:expr) => {
@@ -315,18 +226,18 @@ mod tests {
         };
     }
 
-    test!(empty: CustomError::error("test", "test", Context::none()) => "error: test\ntest\n");
-    test!(full_line: CustomError::warning("test", "test", Context::full_line(0, "testing line")) 
+    test!(empty: CustomError::new(BasicKind::Error, "test", "test", Context::none()) => "error: test\ntest\n");
+    test!(full_line: CustomError::new(BasicKind::Warning, "test", "test", Context::full_line(0, "testing line")) 
         => "warning: test\n  ╷\n1 │ testing line\n  ╵\ntest\n");
-    test!(range:  CustomError::warning("test", "test error", Context::range(&FilePosition {text: "hello world\nthis is a multiline\npiece of teXt", line_index: 0, column: 0}, &FilePosition {text: "", line_index: 3, column: 13})) 
+    test!(range:  CustomError::new(BasicKind::Warning, "test", "test error", Context::range(&FilePosition {text: "hello world\nthis is a multiline\npiece of teXt", line_index: 0, column: 0}, &FilePosition {text: "", line_index: 3, column: 13})) 
         => "warning: test\n  ╷\n1 │ hello world\n2 │ this is a multiline\n3 │ piece of teXt\n  ╵\ntest error\n");
-    test!(suggestion: CustomError::error("Invalid path", "This file does not exist", Context::show("fileee.txt")).suggestions(["file.txt"]) 
+    test!(suggestion: CustomError::new(BasicKind::Error, "Invalid path", "This file does not exist", Context::show("fileee.txt")).suggestions(["file.txt"]) 
         => "error: Invalid path\n ╷\n │ fileee.txt\n ╵\nThis file does not exist\nDid you mean: file.txt?\n");
-    test!(suggestions: CustomError::error("Invalid path", "This file does not exist", Context::show("fileee.txt")).suggestions(["file.txt", "filet.txt"]) 
+    test!(suggestions: CustomError::new(BasicKind::Error, "Invalid path", "This file does not exist", Context::show("fileee.txt")).suggestions(["file.txt", "filet.txt"]) 
         => "error: Invalid path\n ╷\n │ fileee.txt\n ╵\nThis file does not exist\nDid you mean any of: file.txt, filet.txt?\n");
-    test!(version: CustomError::error("Invalid number", "This columns is not a number", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9))).version("Software AB v2025.42") 
+    test!(version: CustomError::new(BasicKind::Error, "Invalid number", "This columns is not a number", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9))).version("Software AB v2025.42") 
         => "error: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis columns is not a number\nVersion: Software AB v2025.42\n");
-    test!(merged: CustomError::error("Invalid number", "This columns is not a number", Context::default().line_index(2).lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
+    test!(merged: CustomError::new(BasicKind::Error, "Invalid number", "This columns is not a number", Context::default().line_index(2).lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
             .version("Software AB v2025.42")
             .add_context(Context::default().line_index(12).lines(0, "null,7oo1,NO,-1,23.11").add_highlight((0, 5..9)))
             .add_context(Context::default().line_index(34).lines(0, "HOMOSAPIENS,12i1,YES,,1.23").add_highlight((0, 12..16)))
@@ -334,21 +245,21 @@ mod tests {
 
     const TEXT: &str = "number";
 
-    test!(underlying_error: CustomError::error("Invalid csv line", format!("This column is not a {TEXT}"), Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
-                .add_underlying_error(CustomError::error("Invalid number", "The number contains invalid digit(s)", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 7..8)))) 
+    test!(underlying_error: CustomError::new(BasicKind::Error, "Invalid csv line", format!("This column is not a {TEXT}"), Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
+                .add_underlying_error(CustomError::new(BasicKind::Error, "Invalid number", "The number contains invalid digit(s)", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 7..8)))) 
             => "error: Invalid csv line\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis column is not a number\nUnderlying error:\nerror: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎        ⁃\n ╵\nThe number contains invalid digit(s)\n\n");
 
     #[test]
     fn test_level() {
-        let a = CustomError::error("test", "test", Context::none());
-        assert!(!a.is_warning());
-        let a = CustomError::warning("test", "test", Context::none());
-        assert!(a.is_warning());
+        let a = CustomError::new(BasicKind::Error, "test", "test", Context::none());
+        assert!(a.get_kind().is_error(()));
+        let a = CustomError::new(BasicKind::Warning, "test", "test", Context::none());
+        assert!(!a.get_kind().is_error(()));
     }
 
     #[test]
     fn test_well_behaved() {
-        let a = CustomError::error("test", "test", Context::none());
+        let a = CustomError::new(BasicKind::Error, "test", "test", Context::none());
         let _io_packaged = std::io::Error::other(a);
     }
 }

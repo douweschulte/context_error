@@ -1,46 +1,33 @@
 use core::fmt;
 use std::{borrow::Cow, error};
 
-use crate::{Context, CustomError, CustomErrorTrait};
+use crate::{Context, CustomError, CustomErrorTrait, ErrorKind};
 
 /// An error. Stored as a pointer to a structure on the heap to prevent large sizes which could be
 /// detrimental to performance for the happy path.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BoxedError<'text> {
-    pub(crate) content: Box<CustomError<'text>>,
+pub struct BoxedError<'text, Kind> {
+    pub(crate) content: Box<CustomError<'text, Kind>>,
 }
 
-impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
+impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for BoxedError<'text, Kind> {
+    type UnderlyingError = CustomError<'text, Kind>;
+
     /// Create a new `CustomError`.
     ///
     /// ## Arguments
     /// * `short_desc` - A short description of the error, used as title line.
     /// * `long_desc` - A longer description of the error, presented below the context to give more information and helpful feedback.
     /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    fn error(
+    fn new(
+        kind: Kind,
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
         context: Context<'text>,
     ) -> Self {
         Self {
-            content: Box::new(CustomError::error(short_desc, long_desc, context)),
-        }
-    }
-
-    /// Create a new `CustomError`.
-    ///
-    /// ## Arguments
-    /// * `short_desc` - A short description of the warning, generally used as title line.
-    /// * `long_desc` - A longer description of the warning, presented below the context to give more information and helpful feedback.
-    /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    fn warning(
-        short_desc: impl Into<Cow<'text, str>>,
-        long_desc: impl Into<Cow<'text, str>>,
-        context: Context<'text>,
-    ) -> Self {
-        Self {
-            content: Box::new(CustomError::warning(short_desc, long_desc, context)),
+            content: Box::new(CustomError::new(kind, short_desc, long_desc, context)),
         }
     }
 
@@ -93,7 +80,7 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     /// Add the given underlying errors, will append to the current list.
     fn add_underlying_errors(
         mut self,
-        underlying_errors: impl IntoIterator<Item = impl Into<CustomError<'text>>>,
+        underlying_errors: impl IntoIterator<Item = impl Into<Self::UnderlyingError>>,
     ) -> Self {
         self.content
             .underlying_errors
@@ -102,7 +89,7 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     }
 
     /// Add the given underlying error, will append to the current list.
-    fn add_underlying_error(mut self, underlying_error: impl Into<CustomError<'text>>) -> Self {
+    fn add_underlying_error(mut self, underlying_error: impl Into<Self::UnderlyingError>) -> Self {
         self.content.underlying_errors.push(underlying_error.into());
         self
     }
@@ -118,9 +105,8 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
         self
     }
 
-    /// Tests if this errors is a warning
-    fn is_warning(&self) -> bool {
-        self.content.warning
+    fn get_kind(&self) -> &Kind {
+        &self.content.kind
     }
 
     /// Gives the short description or title for this error
@@ -149,35 +135,38 @@ impl<'text> CustomErrorTrait<'text> for BoxedError<'text> {
     }
 
     /// Gives the underlying errors
-    fn get_underlying_errors(&self) -> &[CustomError<'text>] {
+    fn get_underlying_errors(&self) -> &[Self::UnderlyingError] {
         &self.content.underlying_errors
     }
 }
 
-impl<'text> BoxedError<'text> {
+impl<'text, Kind: ErrorKind> BoxedError<'text, Kind> {
     /// (Possibly) clone the text to get a static valid error
-    pub fn to_owned(self) -> BoxedError<'static> {
+    pub fn to_owned(self) -> BoxedError<'static, Kind> {
         BoxedError {
             content: Box::new((*self.content).to_owned()),
         }
     }
-
-    /// Display this error nicely (used for debug and normal display)
-    fn display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.content.display(f)
-    }
 }
 
-impl fmt::Debug for BoxedError<'_> {
+impl<Kind: ErrorKind> fmt::Debug for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f)
+        self.display(f, None)
     }
 }
 
-impl fmt::Display for BoxedError<'_> {
+impl<Kind: ErrorKind> fmt::Display for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f)
+        self.display(f, None)
     }
 }
 
-impl error::Error for BoxedError<'_> {}
+impl<Kind: ErrorKind> error::Error for BoxedError<'_, Kind> {}
+
+impl<'text, Kind: ErrorKind> From<CustomError<'text, Kind>> for BoxedError<'text, Kind> {
+    fn from(value: CustomError<'text, Kind>) -> Self {
+        Self {
+            content: Box::new(value),
+        }
+    }
+}

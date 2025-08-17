@@ -634,6 +634,125 @@ impl<'text> Context<'text> {
             Ok(())
         }
     }
+
+    pub(crate) fn display_html(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        if self.is_empty() {
+            Ok(())
+        } else if self.lines.is_empty() {
+            write!(f, "<div class='context'>")?;
+            write!(
+                f,
+                "<span class='source'>{}{}{}</span>",
+                self.source.as_deref().unwrap_or_default(),
+                self.line_number
+                    .map(|i| format!(":{i}"))
+                    .unwrap_or_default(),
+                self.highlights
+                    .first()
+                    .filter(|h| h.line == 0
+                        && self.highlights.len() == 1
+                        && self.line_number.is_some())
+                    .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
+                    .unwrap_or_default()
+            )?;
+            write!(f, "</div>")?;
+            Ok(())
+        } else {
+            write!(f, "<div class='context'>")?;
+            if let Some(source) = &self.source {
+                write!(
+                    f,
+                    "<span class='source'>{source}{}{}</span>",
+                    self.line_number
+                        .map(|i| format!(":{i}"))
+                        .unwrap_or_default(),
+                    self.highlights
+                        .first()
+                        .filter(|h| h.line == 0
+                            && self.highlights.len() == 1
+                            && self.line_number.is_some())
+                        .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
+                        .unwrap_or_default()
+                )?;
+            }
+            for (index, line) in self.lines.lines().enumerate() {
+                let mut highlight_range = None;
+                let mut highlights: Vec<_> = self
+                    .highlights
+                    .iter()
+                    .filter(|h| h.line == index)
+                    .inspect(|h| {
+                        highlight_range = Some(highlight_range.map_or(
+                            (h.offset, h.offset.saturating_add(h.length)),
+                            |range: (usize, usize)| {
+                                (
+                                    range.0.min(h.offset),
+                                    range.1.max(h.offset.saturating_add(h.length)),
+                                )
+                            },
+                        ));
+                    })
+                    .collect();
+                highlights.sort_by(|a, b| a.offset.cmp(&b.offset));
+                let max_cols = 195;
+
+                let line_length = line.chars().count();
+                let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
+                    (0, max_cols - 1),
+                    |(start, end)| {
+                        (
+                            start.saturating_sub(5),
+                            end.saturating_add(5)
+                                .min(line_length)
+                                .min(start.saturating_sub(5) + max_cols),
+                        )
+                    },
+                );
+
+                write!(
+                    f,
+                    "<span class='line-number'>{}</span><span class='line'>",
+                    self.line_number
+                        .map_or(String::new(), |n| (n.get() as usize + index).to_string())
+                )?;
+
+                if displayed_range.0 != 0 {
+                    write!(f, "…")?;
+                }
+
+                for (char_index, c) in line
+                    .chars()
+                    .enumerate()
+                    .skip(displayed_range.0)
+                    .take(displayed_range.1 - displayed_range.0)
+                {
+                    for high in &highlights {
+                        if high.offset == char_index {
+                            write!(
+                                f,
+                                "<span class='highlight' title='{}'>",
+                                high.comment.as_deref().unwrap_or_default()
+                            )?;
+                        }
+                    }
+                    write!(f, "{c}")?;
+                    for high in &highlights {
+                        if high.offset + high.length == char_index {
+                            write!(f, "</span>")?;
+                        }
+                    }
+                }
+
+                if displayed_range.1 != line_length {
+                    write!(f, "…")?;
+                }
+
+                write!(f, "</span>")?;
+            }
+            write!(f, "</div>")?;
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
