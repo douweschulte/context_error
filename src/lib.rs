@@ -10,6 +10,8 @@ mod combine;
 mod context;
 /// An error with all its properties
 mod custom_error;
+/// Payload trait for error payloads
+mod error_enum;
 /// A trait to define errors
 mod error_trait;
 /// A highlight on a line
@@ -22,6 +24,7 @@ use coloured::*;
 pub use combine::*;
 pub use context::*;
 pub use custom_error::*;
+pub use error_enum::*;
 pub use error_trait::*;
 pub use highlight::*;
 pub use to_html::*;
