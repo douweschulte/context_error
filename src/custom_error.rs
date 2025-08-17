@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error, fmt};
 
-use crate::{BoxedError, Context, CustomErrorTrait, ErrorKind};
+use crate::{BoxedError, Context, CustomErrorTrait, ErrorContent, ErrorKind};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -19,6 +19,28 @@ pub struct CustomError<'text, Kind> {
     pub(crate) contexts: Vec<Context<'text>>,
     /// Underlying errors
     pub(crate) underlying_errors: Vec<CustomError<'text, Kind>>,
+}
+
+impl<'text, Kind: 'text> ErrorContent<'text> for CustomError<'text, Kind> {
+    /// Gives the short description or title for this error
+    fn get_short_description(&self) -> &str {
+        &self.short_description
+    }
+
+    /// Gives the long description for this error
+    fn get_long_description(&self) -> &str {
+        &self.long_description
+    }
+
+    /// The suggestions
+    fn get_suggestions(&self) -> &[Cow<'text, str>] {
+        &self.suggestions
+    }
+
+    /// The version
+    fn get_version(&self) -> &str {
+        &self.version
+    }
 }
 
 impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for CustomError<'text, Kind> {
@@ -130,26 +152,6 @@ impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for CustomError<'text
     /// Tests if this errors is a warning
     fn get_kind(&self) -> &Kind {
         &self.kind
-    }
-
-    /// Gives the short description or title for this error
-    fn get_short_description(&self) -> &str {
-        &self.short_description
-    }
-
-    /// Gives the long description for this error
-    fn get_long_description(&self) -> &str {
-        &self.long_description
-    }
-
-    /// The suggestions
-    fn get_suggestions(&self) -> &[Cow<'text, str>] {
-        &self.suggestions
-    }
-
-    /// The version
-    fn get_version(&self) -> &str {
-        &self.version
     }
 
     /// Gives the context for this error

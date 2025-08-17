@@ -9,7 +9,7 @@ pub fn combine_error<'a, E: CustomErrorTrait<'a, Kind>, Kind: ErrorKind>(
     error: E,
 ) {
     for e in &mut *errors {
-        if e.could_merge(&error) {
+        if CustomErrorTrait::could_merge(e, &error) {
             e.add_contexts_ref(error.get_contexts().iter().cloned());
             return;
         }

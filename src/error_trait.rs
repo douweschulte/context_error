@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
-use crate::{Coloured, Context, ErrorKind, ErrorKindStaticText};
+use crate::{Coloured, Context, ErrorContent, ErrorKind};
 
 /// A trait to guarantee identical an API between the boxed and unboxed error version
-pub trait CustomErrorTrait<'text, Kind>: Sized + Default + PartialEq
+pub trait CustomErrorTrait<'text, Kind>: Sized + Default + PartialEq + ErrorContent<'text>
 where
     Kind: ErrorKind,
 {
-    type UnderlyingError: CustomErrorTrait<'text, Kind>;
+    type UnderlyingError: CustomErrorTrait<'text, Kind> + Clone + PartialEq;
 
     /// Create a new `CustomError`.
     ///
@@ -69,32 +69,17 @@ where
     /// Tests if this errors is a warning
     fn get_kind(&self) -> &Kind;
 
-    /// Gives the short description or title for this error
-    fn get_short_description(&self) -> &str;
-
-    /// Gives the long description for this error
-    fn get_long_description(&self) -> &str;
-
-    /// The suggestions
-    fn get_suggestions(&self) -> &[Cow<'text, str>];
-
-    /// The version
-    fn get_version(&self) -> &str;
-
     /// Gives the context for this error
     fn get_contexts(&self) -> &[Context<'text>];
 
     /// Gives the underlying errors
-    fn get_underlying_errors(&self) -> &[Self::UnderlyingError];
+    fn get_underlying_errors(&self) -> Cow<'text, [Self::UnderlyingError]>;
 
     /// Check if these two can be merged
     fn could_merge(&self, other: &Self) -> bool {
         self.get_kind() == other.get_kind()
-            && self.get_short_description() == other.get_short_description()
-            && self.get_long_description() == other.get_long_description()
-            && self.get_suggestions() == other.get_suggestions()
             && self.get_underlying_errors() == other.get_underlying_errors()
-            && self.get_version() == other.get_version()
+            && ErrorContent::could_merge(self, other)
     }
 
     /// Display this error nicely (used for debug and normal display)
@@ -168,7 +153,7 @@ where
             _ => {
                 writeln!(f, "{}:", "Underlying errors".yellow(),)?;
                 let mut first = true;
-                for error in self.get_underlying_errors() {
+                for error in self.get_underlying_errors().iter() {
                     if !first {
                         writeln!(f)?;
                     }
@@ -222,7 +207,7 @@ where
                     " any of"
                 }
             )?;
-            for suggestion in self.get_suggestions() {
+            for suggestion in self.get_suggestions().iter() {
                 write!(f, "<li class='suggestion'>{suggestion}</li>")?;
             }
             write!(f, "</ul>")?;
@@ -244,7 +229,7 @@ where
                     "s"
                 }
             )?;
-            for error in self.get_underlying_errors() {
+            for error in self.get_underlying_errors().iter() {
                 write!(f, "<li class='underlying_error'>")?;
                 error.display_html(f, settings.clone())?;
                 write!(f, "</li>")?;
@@ -267,17 +252,22 @@ where
 impl<'a, T, Kind> CustomErrorTraitExt<'a, Kind> for T
 where
     T: CustomErrorTrait<'a, Kind>,
-    Kind: ErrorKindStaticText,
+    T::UnderlyingError: CustomErrorTrait<'a, Kind>,
+    Kind: ErrorContent<'a> + ErrorKind,
 {
 }
 
 pub trait CustomErrorTraitExt<'a, Kind>: CustomErrorTrait<'a, Kind>
 where
-    Kind: ErrorKindStaticText,
+    Kind: ErrorContent<'a> + ErrorKind,
 {
     fn from_kind(kind: Kind, context: Context<'a>) -> Self {
-        let short_desc = kind.short_description();
-        let long_desc = kind.long_description();
+        let short_desc = kind.get_short_description();
+        let long_desc = kind.get_long_description();
+        let suggestions = kind.get_suggestions();
+        let version = kind.get_version();
         Self::new(kind, short_desc, long_desc, context)
+            .suggestions(suggestions.iter().cloned())
+            .version(version)
     }
 }
