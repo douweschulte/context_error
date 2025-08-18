@@ -73,7 +73,7 @@ where
     fn get_contexts(&self) -> &[Context<'text>];
 
     /// Gives the underlying errors
-    fn get_underlying_errors(&self) -> Cow<'text, [Self::UnderlyingError]>;
+    fn get_underlying_errors<'a>(&'a self) -> Cow<'a, [Self::UnderlyingError]>;
 
     /// Check if these two can be merged
     fn could_merge(&self, other: &Self) -> bool {

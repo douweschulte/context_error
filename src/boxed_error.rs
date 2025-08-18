@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{borrow::Cow, error};
 
-use crate::{Context, CustomError, CustomErrorTrait, ErrorKind};
+use crate::{Context, CustomError, CustomErrorTrait, ErrorContent, ErrorKind};
 
 /// An error. Stored as a pointer to a structure on the heap to prevent large sizes which could be
 /// detrimental to performance for the happy path.
@@ -11,7 +11,31 @@ pub struct BoxedError<'text, Kind> {
     pub(crate) content: Box<CustomError<'text, Kind>>,
 }
 
-impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for BoxedError<'text, Kind> {
+impl<'text, Kind: 'text> ErrorContent<'text> for BoxedError<'text, Kind> {
+    /// Gives the short description or title for this error
+    fn get_short_description(&self) -> Cow<'text, str> {
+        self.content.short_description.clone()
+    }
+
+    /// Gives the long description for this error
+    fn get_long_description(&self) -> Cow<'text, str> {
+        self.content.long_description.clone()
+    }
+
+    /// The suggestions
+    fn get_suggestions<'a>(&'a self) -> Cow<'a, [Cow<'text, str>]> {
+        Cow::Borrowed(self.content.suggestions.as_slice())
+    }
+
+    /// The version
+    fn get_version(&self) -> Cow<'text, str> {
+        self.content.version.clone()
+    }
+}
+
+impl<'text, Kind: ErrorKind + 'text + Clone> CustomErrorTrait<'text, Kind>
+    for BoxedError<'text, Kind>
+{
     type UnderlyingError = CustomError<'text, Kind>;
 
     /// Create a new `CustomError`.
@@ -109,34 +133,14 @@ impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for BoxedError<'text,
         &self.content.kind
     }
 
-    /// Gives the short description or title for this error
-    fn get_short_description(&self) -> &str {
-        &self.content.short_description
-    }
-
-    /// Gives the long description for this error
-    fn get_long_description(&self) -> &str {
-        &self.content.long_description
-    }
-
-    /// The suggestions
-    fn get_suggestions(&self) -> &[Cow<'text, str>] {
-        &self.content.suggestions
-    }
-
-    /// The version
-    fn get_version(&self) -> &str {
-        &self.content.version
-    }
-
     /// Gives the context for this error
     fn get_contexts(&self) -> &[Context<'text>] {
         &self.content.contexts
     }
 
     /// Gives the underlying errors
-    fn get_underlying_errors(&self) -> &[Self::UnderlyingError] {
-        &self.content.underlying_errors
+    fn get_underlying_errors<'a>(&'a self) -> Cow<'a, [Self::UnderlyingError]> {
+        Cow::Borrowed(self.content.underlying_errors.as_slice())
     }
 }
 
@@ -149,19 +153,19 @@ impl<'text, Kind: ErrorKind> BoxedError<'text, Kind> {
     }
 }
 
-impl<Kind: ErrorKind> fmt::Debug for BoxedError<'_, Kind> {
+impl<Kind: ErrorKind + Clone> fmt::Debug for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, None)
     }
 }
 
-impl<Kind: ErrorKind> fmt::Display for BoxedError<'_, Kind> {
+impl<Kind: ErrorKind + Clone> fmt::Display for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, None)
     }
 }
 
-impl<Kind: ErrorKind> error::Error for BoxedError<'_, Kind> {}
+impl<Kind: ErrorKind + Clone> error::Error for BoxedError<'_, Kind> {}
 
 impl<'text, Kind: ErrorKind> From<CustomError<'text, Kind>> for BoxedError<'text, Kind> {
     fn from(value: CustomError<'text, Kind>) -> Self {

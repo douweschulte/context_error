@@ -17,7 +17,7 @@ where
     fn get_long_description(&self) -> Cow<'text, str>;
 
     /// The suggestions
-    fn get_suggestions(&self) -> Cow<'text, [Cow<'text, str>]>;
+    fn get_suggestions<'a>(&'a self) -> Cow<'a, [Cow<'text, str>]>;
 
     /// The version
     fn get_version(&self) -> Cow<'text, str>;

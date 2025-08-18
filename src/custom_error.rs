@@ -23,27 +23,29 @@ pub struct CustomError<'text, Kind> {
 
 impl<'text, Kind: 'text> ErrorContent<'text> for CustomError<'text, Kind> {
     /// Gives the short description or title for this error
-    fn get_short_description(&self) -> &str {
-        &self.short_description
+    fn get_short_description(&self) -> Cow<'text, str> {
+        self.short_description.clone()
     }
 
     /// Gives the long description for this error
-    fn get_long_description(&self) -> &str {
-        &self.long_description
+    fn get_long_description(&self) -> Cow<'text, str> {
+        self.long_description.clone()
     }
 
     /// The suggestions
-    fn get_suggestions(&self) -> &[Cow<'text, str>] {
-        &self.suggestions
+    fn get_suggestions<'a>(&'a self) -> Cow<'a, [Cow<'text, str>]> {
+        Cow::Borrowed(self.suggestions.as_slice())
     }
 
     /// The version
-    fn get_version(&self) -> &str {
-        &self.version
+    fn get_version(&self) -> Cow<'text, str> {
+        self.version.clone()
     }
 }
 
-impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for CustomError<'text, Kind> {
+impl<'text, Kind: ErrorKind + 'text + Clone> CustomErrorTrait<'text, Kind>
+    for CustomError<'text, Kind>
+{
     type UnderlyingError = Self;
 
     /// Create a new `CustomError`.
@@ -160,8 +162,8 @@ impl<'text, Kind: ErrorKind> CustomErrorTrait<'text, Kind> for CustomError<'text
     }
 
     /// Gives the underlying errors
-    fn get_underlying_errors(&self) -> &[Self] {
-        &self.underlying_errors
+    fn get_underlying_errors<'a>(&'a self) -> Cow<'a, [Self::UnderlyingError]> {
+        Cow::Borrowed(self.underlying_errors.as_slice())
     }
 }
 
@@ -188,19 +190,19 @@ impl<'text, Kind: ErrorKind> CustomError<'text, Kind> {
     }
 }
 
-impl<Kind: ErrorKind> fmt::Debug for CustomError<'_, Kind> {
+impl<Kind: ErrorKind + Clone> fmt::Debug for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, None)
     }
 }
 
-impl<Kind: ErrorKind> fmt::Display for CustomError<'_, Kind> {
+impl<Kind: ErrorKind + Clone> fmt::Display for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display(f, None)
     }
 }
 
-impl<Kind: ErrorKind> error::Error for CustomError<'_, Kind> {}
+impl<Kind: ErrorKind + Clone> error::Error for CustomError<'_, Kind> {}
 
 impl<'text, Kind: ErrorKind> From<BoxedError<'text, Kind>> for CustomError<'text, Kind> {
     fn from(value: BoxedError<'text, Kind>) -> Self {
