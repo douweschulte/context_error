@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{borrow::Cow, error};
 
-use crate::{Context, CustomError, CustomErrorTrait, ErrorContent, ErrorKind};
+use crate::{Context, CreateError, CustomError, ErrorKind, FullErrorContent, StaticErrorContent};
 
 /// An error. Stored as a pointer to a structure on the heap to prevent large sizes which could be
 /// detrimental to performance for the happy path.
@@ -11,7 +11,7 @@ pub struct BoxedError<'text, Kind> {
     pub(crate) content: Box<CustomError<'text, Kind>>,
 }
 
-impl<'text, Kind: 'text> ErrorContent<'text> for BoxedError<'text, Kind> {
+impl<'text, Kind: 'text> StaticErrorContent<'text> for BoxedError<'text, Kind> {
     /// Gives the short description or title for this error
     fn get_short_description(&self) -> Cow<'text, str> {
         self.content.short_description.clone()
@@ -33,11 +33,27 @@ impl<'text, Kind: 'text> ErrorContent<'text> for BoxedError<'text, Kind> {
     }
 }
 
-impl<'text, Kind: ErrorKind + 'text + Clone> CustomErrorTrait<'text, Kind>
+impl<'text, Kind: 'text + Clone + PartialEq + ErrorKind> FullErrorContent<'text, Kind>
     for BoxedError<'text, Kind>
 {
     type UnderlyingError = CustomError<'text, Kind>;
 
+    fn get_kind(&self) -> Kind {
+        self.content.kind.clone()
+    }
+
+    /// Gives the context for this error
+    fn get_contexts<'a>(&'a self) -> Cow<'a, [Context<'text>]> {
+        Cow::Borrowed(self.content.contexts.as_slice())
+    }
+
+    /// Gives the underlying errors
+    fn get_underlying_errors<'a>(&'a self) -> Cow<'a, [Self::UnderlyingError]> {
+        Cow::Borrowed(self.content.underlying_errors.as_slice())
+    }
+}
+
+impl<'text, Kind: ErrorKind + 'text + Clone> CreateError<'text, Kind> for BoxedError<'text, Kind> {
     /// Create a new `CustomError`.
     ///
     /// ## Arguments
@@ -127,20 +143,6 @@ impl<'text, Kind: ErrorKind + 'text + Clone> CustomErrorTrait<'text, Kind>
             .map(|c| c.line_index(line_index))
             .collect();
         self
-    }
-
-    fn get_kind(&self) -> &Kind {
-        &self.content.kind
-    }
-
-    /// Gives the context for this error
-    fn get_contexts(&self) -> &[Context<'text>] {
-        &self.content.contexts
-    }
-
-    /// Gives the underlying errors
-    fn get_underlying_errors<'a>(&'a self) -> Cow<'a, [Self::UnderlyingError]> {
-        Cow::Borrowed(self.content.underlying_errors.as_slice())
     }
 }
 
