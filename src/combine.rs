@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::{CreateError, ErrorKind, FullErrorContent};
 
 /// Combine a new error into a stack of existing errors. This merges errors that can be merged
@@ -21,7 +19,7 @@ pub fn combine_error<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
 /// Combine a list full of error into the list of already existing errors.
 pub fn combine_errors<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
     base_errors: &mut Vec<E>,
-    new_errors: impl Iterator<Item = E>,
+    new_errors: impl IntoIterator<Item = E>,
     settings: Kind::Settings,
 ) {
     for e in new_errors {
@@ -51,7 +49,6 @@ where
             iter: self,
             errors: Vec::new(),
             settings,
-            _marker: PhantomData {},
         }
     }
 }
@@ -66,7 +63,6 @@ where
     iter: Iter,
     errors: Vec<E>,
     settings: Kind::Settings,
-    _marker: PhantomData<Kind>,
 }
 
 impl<'a, Iter, T, E, Kind> Iterator for &mut CombineErrors<Iter, T, E, Kind>

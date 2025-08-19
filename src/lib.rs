@@ -11,9 +11,11 @@ mod context;
 /// An error with all its properties
 mod custom_error;
 /// Payload trait for error payloads
-mod error_kind;
+mod error_content;
 /// A trait to define errors
-mod error_trait;
+mod error_create;
+/// Trait for error kinds/payloads
+mod error_kind;
 /// A highlight on a line
 mod highlight;
 
@@ -22,6 +24,7 @@ use coloured::*;
 pub use combine::*;
 pub use context::*;
 pub use custom_error::*;
+pub use error_content::*;
+pub use error_create::*;
 pub use error_kind::*;
-pub use error_trait::*;
 pub use highlight::*;

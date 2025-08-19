@@ -54,20 +54,13 @@ impl<'text, Kind: 'text + Clone + PartialEq + ErrorKind> FullErrorContent<'text,
 }
 
 impl<'text, Kind: ErrorKind + 'text + Clone> CreateError<'text, Kind> for BoxedError<'text, Kind> {
-    /// Create a new `CustomError`.
-    ///
-    /// ## Arguments
-    /// * `short_desc` - A short description of the error, used as title line.
-    /// * `long_desc` - A longer description of the error, presented below the context to give more information and helpful feedback.
-    /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
-    fn new(
+    fn small(
         kind: Kind,
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
-        context: Context<'text>,
     ) -> Self {
         Self {
-            content: Box::new(CustomError::new(kind, short_desc, long_desc, context)),
+            content: Box::new(CustomError::small(kind, short_desc, long_desc)),
         }
     }
 

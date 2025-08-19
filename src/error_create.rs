@@ -20,6 +20,21 @@ where
         short_desc: impl Into<Cow<'text, str>>,
         long_desc: impl Into<Cow<'text, str>>,
         context: Context<'text>,
+    ) -> Self {
+        Self::small(kind, short_desc, long_desc).add_context(context)
+    }
+
+    /// Create a new `CustomError`.
+    ///
+    /// ## Arguments
+    /// * `kind` - The error kind.
+    /// * `short_desc` - A short description of the error, used as title line.
+    /// * `long_desc` - A longer description of the error, presented below the context to give more information and helpful feedback.
+    /// * `context` - The context, in the most general sense this produces output which leads the user to the right place in the code or file.
+    fn small(
+        kind: Kind,
+        short_desc: impl Into<Cow<'text, str>>,
+        long_desc: impl Into<Cow<'text, str>>,
     ) -> Self;
 
     /// Update with a new long description
@@ -64,27 +79,39 @@ where
     /// Set the context line index, for every context in this error
     #[must_use]
     fn overwrite_line_index(self, line_index: u32) -> Self;
-}
 
-impl<'a, T, Kind> CustomErrorTraitExt<'a, Kind> for T
-where
-    T: CreateError<'a, Kind>,
-    T::UnderlyingError: CreateError<'a, Kind>,
-    Kind: StaticErrorContent<'a> + ErrorKind,
-{
-}
-
-pub trait CustomErrorTraitExt<'a, Kind>: CreateError<'a, Kind>
-where
-    Kind: StaticErrorContent<'a> + ErrorKind,
-{
-    fn from_kind(kind: Kind, context: Context<'a>) -> Self {
+    /// Create a new error from the given kind
+    #[must_use]
+    fn from_kind(kind: Kind) -> Self
+    where
+        Kind: StaticErrorContent<'text>,
+    {
         let short_desc = kind.get_short_description();
         let long_desc = kind.get_long_description();
         let suggestions = kind.get_suggestions().to_vec();
         let version = kind.get_version();
-        Self::new(kind, short_desc, long_desc, context)
+        Self::small(kind, short_desc, long_desc)
             .suggestions(suggestions)
             .version(version)
+    }
+
+    /// Create a new error from the given kind
+    #[must_use]
+    fn from_full_kind(kind: Kind) -> Self
+    where
+        Kind: FullErrorContent<'text, Kind>,
+        Kind::UnderlyingError: Into<Self::UnderlyingError>,
+    {
+        let short_desc = kind.get_short_description();
+        let long_desc = kind.get_long_description();
+        let suggestions = kind.get_suggestions().to_vec();
+        let version = kind.get_version();
+        let contexts = kind.get_contexts().to_vec();
+        let underlying_errors = kind.get_underlying_errors().to_vec();
+        Self::small(kind, short_desc, long_desc)
+            .suggestions(suggestions)
+            .version(version)
+            .add_contexts(contexts)
+            .add_underlying_errors(underlying_errors)
     }
 }
