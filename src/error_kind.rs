@@ -14,7 +14,7 @@ pub trait ErrorKind: PartialEq + Default {
     fn ignored(&self, settings: Self::Settings) -> bool;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BasicKind {
     #[default]
     Error,
@@ -34,5 +34,11 @@ impl ErrorKind for BasicKind {
     }
     fn ignored(&self, _settings: Self::Settings) -> bool {
         false
+    }
+}
+
+impl std::fmt::Display for BasicKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.descriptor())
     }
 }
