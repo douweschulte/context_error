@@ -436,7 +436,7 @@ impl<'text> Context<'text> {
 
                 let line_length = line.chars().count();
                 let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
-                    (0, max_cols - 1),
+                    (0, line_length),
                     |(start, end)| {
                         (
                             start.saturating_sub(5),
@@ -743,7 +743,7 @@ impl<'text> Context<'text> {
                     }
                 }
 
-                if displayed_range.1 != line_length {
+                if displayed_range.1 < line_length {
                     write!(f, "…")?;
                 }
 
@@ -843,6 +843,8 @@ mod tests {
     test!(empty_source_offset: Context::default().source("file.txt").add_highlight((0, 12, 3)) => "[file.txt]");
     test!(show: Context::show("Hello world") => " ╷\n │ Hello world\n ╵");
     test!(show_characters: Context::show("Hello world cr\r tab\t null\0") => " ╷\n │ Hello world cr␍ tab␉ null␀\n ╵");
+    test!(full_line_1: Context::full_line(0, "A[deamidation]").add_highlight((0, 2..)) 
+        => "  ╷\n1 │ A[deamidation]\n  ╎   ╶──────────╴\n  ╵");
     test!(full_line: Context::full_line(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
         => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╵");
     test!(line: Context::line(Some(0), "#[derive(Clone, Copy, Debug, Eq, PartialEq)]", 16, 4) 
