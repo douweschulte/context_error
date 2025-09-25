@@ -1,12 +1,12 @@
 [package]
-name = "custom_error"
+name = "context_error"
 description = "library to create rich errors to help users understand going about and fixing the thing"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.67"
 authors = ["Douwe Schulte <d.schulte@uu.nl>"]
 license = "EUPL-1.2"
-repository = "https://github.com/douweschulte/custom_error"
+repository = "https://github.com/douweschulte/context_error"
 keywords = ["error"]
 categories = ["rust-patterns"]
 
