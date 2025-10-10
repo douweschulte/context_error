@@ -9,7 +9,7 @@ use crate::{Coloured, Highlight};
 
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Context<'text> {
     /// The source or path of the text
     pub(crate) source: Option<Cow<'text, str>>,

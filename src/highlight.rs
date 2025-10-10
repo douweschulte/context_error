@@ -5,7 +5,7 @@ use std::{
 
 /// A highlight on a single line. The easiest way of creating these is by using the [From] implementations.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Highlight<'text> {
     /// Line index in case multiple lines are given
     pub line: usize,
