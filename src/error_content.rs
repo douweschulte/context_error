@@ -27,7 +27,8 @@ where
             && self.get_version() == other.get_version()
     }
 
-    /// Display this error nicely (used for debug and normal display)
+    /// Display this error nicely (used for debug and normal display).
+    /// `allow_trim_context` allows the context to trim the input to display less unrelated parts of the context.
     fn display_with_context<Kind: ErrorKind, UnderlyingError: FullErrorContent<'text, Kind>>(
         &self,
         f: &mut std::fmt::Formatter<'_>,
@@ -35,6 +36,7 @@ where
         settings: Option<<Kind as ErrorKind>::Settings>,
         contexts: &[Context<'text>],
         underlying_errors: &[UnderlyingError],
+        allow_trim_context: bool,
     ) -> std::fmt::Result {
         writeln!(
             f,
@@ -64,7 +66,7 @@ where
                     (false, false) => crate::Merged::Middle(margin),
                     (false, true) => crate::Merged::Last(margin),
                 };
-                context.display(f, None, merged)?;
+                context.display(f, None, merged, allow_trim_context)?;
                 if merged.trailing_decoration() {
                     writeln!(f)?
                 };
@@ -94,7 +96,7 @@ where
             0 => Ok(()),
             1 => {
                 writeln!(f, "{}:", "Underlying error".yellow(),)?;
-                underlying_errors[0].display(f, settings)
+                underlying_errors[0].display(f, settings, allow_trim_context)
             }
             _ => {
                 writeln!(f, "{}:", "Underlying errors".yellow(),)?;
@@ -103,7 +105,7 @@ where
                     if !first {
                         writeln!(f)?;
                     }
-                    error.display(f, settings.clone())?;
+                    error.display(f, settings.clone(), allow_trim_context)?;
                     first = false;
                 }
                 Ok(())
@@ -121,22 +123,23 @@ where
         settings: Option<<Kind as ErrorKind>::Settings>,
         contexts: &[Context<'text>],
         underlying_errors: &[UnderlyingError],
+        allow_trim_context: bool,
     ) -> std::fmt::Result {
         write!(f, "<div class='{}'>", kind.descriptor(),)?;
 
-        write!(f, "<p class='title'>{}</p>", self.get_short_description())?;
+        write!(f, "<p class='title'>")?;
+        html_escape(f, &self.get_short_description())?;
+        write!(f, "</p>")?;
 
         write!(f, "<div class='contexts'>")?;
         for context in contexts.iter() {
-            context.display_html(f)?;
+            context.display_html(f, allow_trim_context)?;
         }
         write!(f, "</div>")?;
 
-        write!(
-            f,
-            "<p class='description'>{}</p>",
-            self.get_long_description()
-        )?;
+        write!(f, "<p class='description'>")?;
+        html_escape(f, &self.get_long_description())?;
+        write!(f, "</p>")?;
         if !self.get_suggestions().is_empty() {
             write!(
                 f,
@@ -148,16 +151,16 @@ where
                 }
             )?;
             for suggestion in self.get_suggestions().iter() {
-                write!(f, "<li class='suggestion'>{suggestion}</li>")?;
+                write!(f, "<li class='suggestion'>")?;
+                html_escape(f, suggestion)?;
+                write!(f, "</li>")?;
             }
             write!(f, "</ul>")?;
         }
         if !self.get_version().is_empty() {
-            write!(
-                f,
-                "<p class='version'>Version: <span class='version-text'>{}</span></p>",
-                self.get_version()
-            )?;
+            write!(f, "<p class='version'>Version: <span class='version-text'>")?;
+            html_escape(f, &self.get_version())?;
+            write!(f, "</span></p>")?;
         }
         if !underlying_errors.is_empty() {
             write!(
@@ -171,7 +174,7 @@ where
             )?;
             for error in underlying_errors.iter() {
                 write!(f, "<li class='underlying_error'>")?;
-                error.display_html(f, settings.clone())?;
+                error.display_html(f, settings.clone(), allow_trim_context)?;
                 write!(f, "</li>")?;
             }
             write!(f, "</ul>")?;
@@ -209,6 +212,7 @@ where
         &self,
         f: &mut std::fmt::Formatter<'_>,
         settings: Option<<Kind as ErrorKind>::Settings>,
+        allow_trim_context: bool,
     ) -> std::fmt::Result {
         self.display_with_context(
             f,
@@ -216,6 +220,7 @@ where
             settings,
             &self.get_contexts(),
             &self.get_underlying_errors(),
+            allow_trim_context,
         )
     }
 
@@ -224,6 +229,7 @@ where
         &self,
         f: &mut impl std::fmt::Write,
         settings: Option<<Kind as ErrorKind>::Settings>,
+        allow_trim_context: bool,
     ) -> std::fmt::Result {
         self.display_html_with_context(
             f,
@@ -231,14 +237,66 @@ where
             settings,
             &self.get_contexts(),
             &self.get_underlying_errors(),
+            allow_trim_context,
         )
     }
 
     /// Display this error nicely in HTML as a convenience method (similar to `to_string` which is automatically made if you support `Display`)
-    fn to_html(&self) -> String {
+    fn to_html(&self, allow_trim_context: bool) -> String {
         let mut string = String::new();
-        self.display_html(&mut string, None)
+        self.display_html(&mut string, None, allow_trim_context)
             .expect("Errored while writing to string");
         string
+    }
+
+    /// Convert this error into a different error kind. This also converts all underlying errors.
+    fn convert<
+        NewKind: ErrorKind,
+        New: crate::CreateError<'text, NewKind> + FullErrorContent<'text, NewKind>,
+    >(
+        &self,
+        convert: fn(Kind) -> NewKind,
+    ) -> New
+    where
+        New::UnderlyingError: From<New>,
+    {
+        let new = New::small(
+            convert(self.get_kind()),
+            self.get_short_description(),
+            self.get_long_description(),
+        );
+        new.add_contexts(self.get_contexts().iter().cloned())
+            .suggestions(self.get_suggestions().iter().cloned())
+            .version(self.get_version())
+            .add_underlying_errors(
+                self.get_underlying_errors()
+                    .iter()
+                    .cloned()
+                    .map(|e| e.convert::<NewKind, New>(convert)),
+            )
+    }
+}
+
+pub(crate) fn html_escape(
+    writer: &mut impl std::fmt::Write,
+    text: &str,
+) -> std::result::Result<(), std::fmt::Error> {
+    for c in text.chars() {
+        html_escape_char(writer, c)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn html_escape_char(
+    writer: &mut impl std::fmt::Write,
+    c: char,
+) -> std::result::Result<(), std::fmt::Error> {
+    match c {
+        '<' => write!(writer, "&lt;"),
+        '>' => write!(writer, "&gt;"),
+        '&' => write!(writer, "&amp;"),
+        '\"' => write!(writer, "&quot;"),
+        '\'' => write!(writer, "&#39;"),
+        _ => write!(writer, "{c}"),
     }
 }

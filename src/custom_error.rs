@@ -185,13 +185,13 @@ impl<'text, Kind: ErrorKind> CustomError<'text, Kind> {
 
 impl<Kind: ErrorKind + Clone> fmt::Debug for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None)
+        self.display(f, None, true)
     }
 }
 
 impl<Kind: ErrorKind + Clone> fmt::Display for CustomError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None)
+        self.display(f, None, true)
     }
 }
 

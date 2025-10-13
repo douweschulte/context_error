@@ -150,13 +150,13 @@ impl<'text, Kind: ErrorKind> BoxedError<'text, Kind> {
 
 impl<Kind: ErrorKind + Clone> fmt::Debug for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None)
+        self.display(f, None, true)
     }
 }
 
 impl<Kind: ErrorKind + Clone> fmt::Display for BoxedError<'_, Kind> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None)
+        self.display(f, None, true)
     }
 }
 

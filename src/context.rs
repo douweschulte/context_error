@@ -5,7 +5,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use crate::{Coloured, Highlight};
+use crate::{html_escape, html_escape_char, Coloured, Highlight};
 
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -335,6 +335,7 @@ impl<'text> Context<'text> {
         f: &mut fmt::Formatter<'_>,
         note: Option<&str>,
         merged: Merged,
+        allow_trim: bool,
     ) -> fmt::Result {
         #[cfg(not(feature = "ascii-only"))]
         mod symbols {
@@ -435,15 +436,19 @@ impl<'text> Context<'text> {
                 highlights.sort_by(|a, b| a.offset.cmp(&b.offset));
 
                 let line_length = line.chars().count();
-                let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
-                    (0, line_length),
-                    |(start, end)| {
-                        (
-                            start.saturating_sub(5),
-                            end.saturating_add(5).min(line_length),
-                        )
-                    },
-                );
+                let displayed_range = if allow_trim {
+                    highlight_range.filter(|_| line_length > max_cols).map_or(
+                        (0, line_length),
+                        |(start, end)| {
+                            (
+                                start.saturating_sub(5),
+                                end.saturating_add(5).min(line_length),
+                            )
+                        },
+                    )
+                } else {
+                    (0, line_length)
+                };
 
                 let mut first = true;
                 let mut last_line_comment_cut_off = false;
@@ -603,7 +608,7 @@ impl<'text> Context<'text> {
                                 write!(f, "{c}")?;
                                 index = index.saturating_add(1);
                             }
-                            last_offset = index; // TODO: fix
+                            last_offset = index; // TODO: fix, allow putting comments on the same line if possible
                         }
                         last_offset = high.offset
                             + high
@@ -635,15 +640,16 @@ impl<'text> Context<'text> {
         }
     }
 
-    pub(crate) fn display_html(&self, f: &mut impl fmt::Write) -> fmt::Result {
+    pub(crate) fn display_html(&self, f: &mut impl fmt::Write, allow_trim: bool) -> fmt::Result {
         if self.is_empty() {
             Ok(())
         } else if self.lines.is_empty() {
             write!(f, "<div class='context'>")?;
+            write!(f, "<span class='source'>")?;
+            html_escape(f, self.source.as_deref().unwrap_or_default())?;
             write!(
                 f,
-                "<span class='source'>{}{}{}</span>",
-                self.source.as_deref().unwrap_or_default(),
+                "{}{}</span></div>",
                 self.line_number
                     .map(|i| format!(":{i}"))
                     .unwrap_or_default(),
@@ -655,14 +661,16 @@ impl<'text> Context<'text> {
                     .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
                     .unwrap_or_default()
             )?;
-            write!(f, "</div>")?;
+
             Ok(())
         } else {
             write!(f, "<div class='context'>")?;
             if let Some(source) = &self.source {
+                write!(f, "<span class='source'>")?;
+                html_escape(f, source)?;
                 write!(
                     f,
-                    "<span class='source'>{source}{}{}</span>",
+                    "{}{}</span>",
                     self.line_number
                         .map(|i| format!(":{i}"))
                         .unwrap_or_default(),
@@ -697,17 +705,21 @@ impl<'text> Context<'text> {
                 let max_cols = 195;
 
                 let line_length = line.chars().count();
-                let displayed_range = highlight_range.filter(|_| line_length > max_cols).map_or(
-                    (0, max_cols - 1),
-                    |(start, end)| {
-                        (
-                            start.saturating_sub(5),
-                            end.saturating_add(5)
-                                .min(line_length)
-                                .min(start.saturating_sub(5) + max_cols),
-                        )
-                    },
-                );
+                let displayed_range = if allow_trim {
+                    highlight_range.filter(|_| line_length > max_cols).map_or(
+                        (0, max_cols - 1),
+                        |(start, end)| {
+                            (
+                                start.saturating_sub(5),
+                                end.saturating_add(5)
+                                    .min(line_length)
+                                    .min(start.saturating_sub(5) + max_cols),
+                            )
+                        },
+                    )
+                } else {
+                    (0, line_length)
+                };
 
                 write!(
                     f,
@@ -728,14 +740,12 @@ impl<'text> Context<'text> {
                 {
                     for high in &highlights {
                         if high.offset == char_index {
-                            write!(
-                                f,
-                                "<span class='highlight' title='{}'>",
-                                high.comment.as_deref().unwrap_or_default()
-                            )?;
+                            write!(f, "<span class='highlight' title='")?;
+                            html_escape(f, high.comment.as_deref().unwrap_or_default())?;
+                            write!(f, "'>")?;
                         }
                     }
-                    write!(f, "{c}")?;
+                    html_escape_char(f, c)?;
                     for high in &highlights {
                         if high.offset + high.length == char_index {
                             write!(f, "</span>")?;
@@ -782,7 +792,7 @@ impl Merged {
 
 impl fmt::Display for Context<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display(f, None, Merged::No)
+        self.display(f, None, Merged::No, true)
     }
 }
 

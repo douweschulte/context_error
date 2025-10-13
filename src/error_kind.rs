@@ -4,13 +4,13 @@ pub trait ErrorKind: PartialEq + Default {
     /// based on user settings. If not used just use `()`.
     type Settings: Clone;
 
-    /// Get the term describing this error, for example 'error' or 'warning'
+    /// Get the term describing this error, for example 'error' or 'warning'. This is required to be HTML safe.
     fn descriptor(&self) -> &'static str;
 
-    /// Check if this is an error, and so should block succeeding the operation
+    /// Check if this is an error, and so should block succeeding the operation.
     fn is_error(&self, settings: Self::Settings) -> bool;
 
-    /// Check if this error can be ignored, meaning fully deleted when combining the errors
+    /// Check if this error can be ignored, meaning fully deleted when combining the errors.
     fn ignored(&self, settings: Self::Settings) -> bool;
 }
 
