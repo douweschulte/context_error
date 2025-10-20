@@ -18,7 +18,7 @@ pub struct Highlight<'text> {
 }
 
 /// Create a highlight at the given line, offset, and of the given length without a comment.
-impl From<(usize, usize, usize)> for Highlight<'static> {
+impl<'text> From<(usize, usize, usize)> for Highlight<'text> {
     fn from(value: (usize, usize, usize)) -> Self {
         Self {
             line: value.0,
