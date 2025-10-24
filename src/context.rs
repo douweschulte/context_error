@@ -710,10 +710,10 @@ impl<'text> Context<'text> {
                         (0, max_cols - 1),
                         |(start, end)| {
                             (
-                                start.saturating_sub(5),
-                                end.saturating_add(5)
+                                start.saturating_sub(50),
+                                end.saturating_add(50)
                                     .min(line_length)
-                                    .min(start.saturating_sub(5) + max_cols),
+                                    .min(start.saturating_sub(50) + max_cols),
                             )
                         },
                     )
