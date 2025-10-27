@@ -244,7 +244,7 @@ mod tests {
 
     test!(underlying_error: CustomError::new(BasicKind::Error, "Invalid csv line", format!("This column is not a {TEXT}"), Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 5..9)))
                 .add_underlying_error(CustomError::new(BasicKind::Error, "Invalid number", "The number contains invalid digit(s)", Context::default().lines(0, "null,80o0,YES,,67.77").add_highlight((0, 7..8)))) 
-            => "error: Invalid csv line\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis column is not a number\nUnderlying error:\nerror: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎        ⁃\n ╵\nThe number contains invalid digit(s)\n\n");
+            => "error: Invalid csv line\n ╷\n │ null,80o0,YES,,67.77\n ╎      ╶──╴\n ╵\nThis column is not a number\nUnderlying error:\nerror: Invalid number\n ╷\n │ null,80o0,YES,,67.77\n ╎        ⁃\n ╵\nThe number contains invalid digit(s)\n");
 
     #[test]
     fn test_level() {

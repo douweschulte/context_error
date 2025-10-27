@@ -907,4 +907,7 @@ mod tests {
     test!(wrapping_3: Context::default().source("file.csv").line_index(1).lines(0, "saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabccccbbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccadaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .add_highlights([(0, 0..1, "Start"), (0, 90..100, "CommentB"),(0, 91..95, "CommentC"),(0,183..185,"CommentC"),(0,186..187,"CommentD")])
         => "  ╭─[file.csv:2]\n2 │ saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbb…\n  ╎ ⁃Start                                                                                    ╶─────\n2 │ …bbbbbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccaaaaa…\n  ╎ ─────╴CommentB                                                                          ╶╴Commen\n  ╎ tC\n2 │ …dddddaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  ╎  ╶───╴CommentD\n  ╵");
+    test!(wrapping_4: Context::default().lines(0, "{Glycan:NoneAc1Hex4NeuGc78}SS+AASSSSS+SSSSSSR+AASSSSS+VNES[U:Phospho]PEK[U:iTRAQ4plex]-[U:Methyl]")
+            .add_highlight((0, 9..17))
+        => " ╷\n │ {Glycan:NoneAc1Hex4NeuGc78}SS+AASSSSS+SSSSSSR+AASSSSS+VNES[U:Phospho]PEK[U:iTRAQ4plex]-[U:Methyl]\n ╎          ╶──────╴\n ╵");
 }
