@@ -117,7 +117,7 @@ impl<'text> Context<'text> {
             }
             (start, end) => {
                 let start = match start {
-                    Bound::Excluded(n) => n + 1,
+                    Bound::Excluded(n) => n.saturating_add(1),
                     Bound::Included(n) => *n,
                     Bound::Unbounded => 0,
                 };
@@ -126,7 +126,7 @@ impl<'text> Context<'text> {
                     line,
                     start,
                     match end {
-                        Bound::Excluded(n) => n - 1,
+                        Bound::Excluded(n) => n.saturating_sub(1),
                         Bound::Included(n) => *n,
                         Bound::Unbounded => line.chars().count(),
                     }
