@@ -747,7 +747,7 @@ impl<'text> Context<'text> {
                     }
                     html_escape_char(f, c)?;
                     for high in &highlights {
-                        if high.offset + high.length == char_index {
+                        if high.offset + high.length - 1 == char_index {
                             write!(f, "</span>")?;
                         }
                     }
