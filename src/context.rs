@@ -299,6 +299,31 @@ impl<'text> Context<'text> {
 
 /// Functionality
 impl<'text> Context<'text> {
+    /// Get the source
+    pub fn get_source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    /// Get the line index
+    pub fn get_line_index(&self) -> Option<u32> {
+        self.line_number.map(|n| n.get() - 1)
+    }
+
+    /// Get the offset of the first line
+    pub fn get_line_offset(&self) -> u32 {
+        self.first_line_offset
+    }
+
+    /// Get the lines
+    pub fn get_lines(&self) -> &str {
+        self.lines.as_ref()
+    }
+
+    /// Get the highlights
+    pub fn get_highlights(&self) -> &[Highlight<'text>] {
+        &self.highlights
+    }
+
     /// (Possibly) clone the text to get a static valid Context
     pub fn to_owned(self) -> Context<'static> {
         Context {
