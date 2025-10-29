@@ -319,6 +319,11 @@ impl<'text> Context<'text> {
         self.lines.as_ref()
     }
 
+    /// Get the lines
+    pub fn get_lines_full_scope(&'text self) -> &'text str {
+        self.lines.as_ref()
+    }
+
     /// Get the highlights
     pub fn get_highlights(&self) -> &[Highlight<'text>] {
         &self.highlights
