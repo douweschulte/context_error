@@ -55,8 +55,8 @@ impl<'text, Range: RangeBounds<usize>> From<(usize, Range)> for Highlight<'text>
             line: value.0,
             offset,
             length: match value.1.end_bound() {
-                Bound::Excluded(n) => n - offset,
-                Bound::Included(n) => n - offset + 1,
+                Bound::Excluded(n) => n.saturating_sub(offset),
+                Bound::Included(n) => n.saturating_sub(offset + 1),
                 Bound::Unbounded => usize::MAX,
             },
             comment: None,
