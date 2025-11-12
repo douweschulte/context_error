@@ -1,7 +1,7 @@
 [package]
 name = "context_error"
-description = "library to create rich errors to help users understand going about and fixing the thing"
-version = "0.1.0"
+description = "Library to create rich errors to help users understand what the error was and how to fix it"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.67"
 authors = ["Douwe Schulte <d.schulte@uu.nl>"]
