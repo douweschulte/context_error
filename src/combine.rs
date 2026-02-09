@@ -1,14 +1,12 @@
+use std::marker::PhantomData;
+
 use crate::{CreateError, ErrorKind, FullErrorContent};
 
 /// Combine a new error into a stack of existing errors. This merges errors that can be merged
 /// to be able to show a terser error if the same error happened multiple times in the same file.
-pub fn combine_error<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
-    errors: &mut Vec<E>,
-    error: E,
-    settings: Kind::Settings,
-) {
+pub fn combine_error<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(errors: &mut Vec<E>, error: E) {
     for e in &mut *errors {
-        if !e.get_kind().ignored(settings.clone()) && FullErrorContent::could_merge(e, &error) {
+        if FullErrorContent::could_merge(e, &error) {
             e.add_contexts_ref(error.get_contexts().iter().cloned());
             return;
         }
@@ -20,10 +18,9 @@ pub fn combine_error<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
 pub fn combine_errors<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
     base_errors: &mut Vec<E>,
     new_errors: impl IntoIterator<Item = E>,
-    settings: Kind::Settings,
 ) {
     for e in new_errors {
-        combine_error(base_errors, e, settings.clone());
+        combine_error(base_errors, e);
     }
 }
 
@@ -35,7 +32,7 @@ where
     Kind: ErrorKind,
 {
     /// Adapt this iterator to keep track of the errors separately and combined them.
-    fn combine_errors(self, settings: Kind::Settings) -> CombineErrors<Iter, T, E, Kind>;
+    fn combine_errors(self) -> CombineErrors<Iter, T, E, Kind>;
 }
 
 impl<'a, Iter, T, E, Kind> CombineErrorsExtender<Iter, T, E, Kind> for Iter
@@ -44,11 +41,11 @@ where
     E: CreateError<'a, Kind>,
     Kind: ErrorKind,
 {
-    fn combine_errors(self, settings: Kind::Settings) -> CombineErrors<Iter, T, E, Kind> {
-        CombineErrors {
+    fn combine_errors(self) -> CombineErrors<Iter, T, E, Kind> {
+        CombineErrors::<Iter, T, E, Kind> {
             iter: self,
             errors: Vec::new(),
-            settings,
+            kind: PhantomData,
         }
     }
 }
@@ -58,11 +55,10 @@ where
 pub struct CombineErrors<Iter, T, E, Kind>
 where
     Iter: Iterator<Item = Result<T, E>>,
-    Kind: ErrorKind,
 {
     iter: Iter,
     errors: Vec<E>,
-    settings: Kind::Settings,
+    kind: PhantomData<Kind>, // TODO: think about if this could be refactored
 }
 
 impl<'a, Iter, T, E, Kind> Iterator for &mut CombineErrors<Iter, T, E, Kind>
@@ -78,7 +74,7 @@ where
                 Result::Ok(value) => {
                     return Some(value);
                 }
-                Result::Err(error) => combine_error(&mut self.errors, error, self.settings.clone()),
+                Result::Err(error) => combine_error(&mut self.errors, error),
             }
         }
         None
