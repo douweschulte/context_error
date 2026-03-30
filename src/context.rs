@@ -422,6 +422,7 @@ impl<'text> Context<'text> {
         mod symbols {
             pub const HIGHLIGHT_START_LINE: &str = " ╎ ";
             pub const ARC_BOTTOM_TO_RIGHT: char = '╭';
+            pub const T_TO_RIGHT: char = '├';
             pub const ARC_TOP_TO_RIGHT: char = '╰';
             pub const LEFT_TO_RIGHT: &str = "─";
             pub const TOP_ENDCAP: char = '╷';
@@ -438,6 +439,7 @@ impl<'text> Context<'text> {
         mod symbols {
             pub const HIGHLIGHT_START_LINE: &str = " * ";
             pub const ARC_BOTTOM_TO_RIGHT: char = '+';
+            pub const T_TO_RIGHT: char = '+';
             pub const ARC_TOP_TO_RIGHT: char = '+';
             pub const LEFT_TO_RIGHT: &str = "-";
             pub const TOP_ENDCAP: char = '.';
@@ -456,7 +458,7 @@ impl<'text> Context<'text> {
             Ok(())
         } else if self.lines.is_empty() {
             if self.source.is_some() || self.line_number.is_some() {
-                self.display_source(f)?;
+                self.display_source(f, merged.leading_decoration())?;
             }
             self.display_byte_range::<RANGE_INDICATION>(f)?;
             Ok(())
@@ -473,11 +475,24 @@ impl<'text> Context<'text> {
                         format!("{ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}").blue(),
                     )?;
                     if self.source.is_some() {
-                        self.display_source(f)?;
+                        self.display_source(f, true)?;
                     }
                     self.display_byte_range::<RANGE_INDICATION>(f)?;
                 } else {
                     write!(f, "{} {}", " ".repeat(margin), TOP_ENDCAP.blue())?;
+                }
+            } else {
+                if self.source.is_some() || self.byte_range.is_some() {
+                    write!(
+                        f,
+                        "{} {}",
+                        " ".repeat(margin),
+                        format!("{T_TO_RIGHT}{LEFT_TO_RIGHT}").blue(),
+                    )?;
+                    if self.source.is_some() {
+                        self.display_source(f, false)?;
+                    }
+                    self.display_byte_range::<RANGE_INDICATION>(f)?;
                 }
             }
 
@@ -706,12 +721,12 @@ impl<'text> Context<'text> {
         }
     }
 
-    fn display_source(&self, f: &mut impl fmt::Write) -> fmt::Result {
+    fn display_source(&self, f: &mut impl fmt::Write, path: bool) -> fmt::Result {
         write!(
             f,
             "{}{}{}{}{}",
             "[".blue(),
-            self.source.as_deref().unwrap_or_default(),
+            self.source.as_deref().filter(|_| path).unwrap_or_default(),
             self.line_number
                 .map(|i| format!(":{i}"))
                 .unwrap_or_default(),
