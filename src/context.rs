@@ -2,14 +2,14 @@ use std::{
     borrow::Cow,
     fmt,
     num::NonZeroU32,
-    ops::{Bound, RangeBounds},
+    ops::{Bound, Range, RangeBounds},
 };
 
 use crate::{html_escape, html_escape_char, Coloured, Highlight};
 
 /// A context construct to indicate a context presumably in a file, but could be in any kind of source text
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Context<'text> {
     /// The source or path of the text
     pub(crate) source: Option<Cow<'text, str>>,
@@ -21,6 +21,31 @@ pub struct Context<'text> {
     pub(crate) lines: Cow<'text, str>,
     /// The highlights, required to be sorted by line first, offset second
     pub(crate) highlights: Vec<Highlight<'text>>,
+    /// The byte range of this context
+    pub(crate) byte_range: Option<Range<usize>>,
+}
+
+impl<'text> Ord for Context<'text> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.source
+            .cmp(&other.source)
+            .then(self.line_number.cmp(&other.line_number))
+            .then(self.first_line_offset.cmp(&other.first_line_offset))
+            .then(self.lines.cmp(&self.lines))
+            .then(self.highlights.cmp(&other.highlights))
+            .then(match (&self.byte_range, &other.byte_range) {
+                (Some(l), Some(r)) => l.start.cmp(&r.start).then(l.end.cmp(&r.end)),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+    }
+}
+
+impl<'text> PartialOrd for Context<'text> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Convenience wrappers using common patterns
@@ -38,6 +63,7 @@ impl<'text> Context<'text> {
             line_number: None,
             lines: line.into(),
             highlights: Vec::new(),
+            byte_range: None,
         }
     }
 
@@ -49,6 +75,7 @@ impl<'text> Context<'text> {
             line_number: NonZeroU32::new(line_index + 1),
             lines: line.into(),
             highlights: Vec::new(),
+            byte_range: None,
         }
     }
 
@@ -70,6 +97,7 @@ impl<'text> Context<'text> {
                 length,
                 comment: None,
             }],
+            byte_range: None,
         }
     }
 
@@ -92,6 +120,7 @@ impl<'text> Context<'text> {
                 length,
                 comment,
             }],
+            byte_range: None,
         }
     }
 
@@ -180,6 +209,7 @@ impl<'text> Context<'text> {
                     },
                 )
                 .collect(),
+            byte_range: None,
         }
     }
 
@@ -198,6 +228,7 @@ impl<'text> Context<'text> {
                     length: 3,
                     comment: None,
                 }],
+                byte_range: None,
             }
         } else {
             Self {
@@ -211,6 +242,7 @@ impl<'text> Context<'text> {
                     length: 3,
                     comment: None,
                 }],
+                byte_range: None,
             }
         }
     }
@@ -229,6 +261,7 @@ impl<'text> Context<'text> {
                     length: (end.column - start.column) as usize,
                     comment: None,
                 }],
+                byte_range: None,
             }
         } else {
             Self {
@@ -243,6 +276,7 @@ impl<'text> Context<'text> {
                         .fold(0, |acc, line| acc + line.len() + usize::from(acc != 0))],
                 ), // TODO: maybe on windows this might be some bytes off
                 highlights: Vec::new(),
+                byte_range: None,
             }
         }
     }
@@ -295,6 +329,15 @@ impl<'text> Context<'text> {
             .extend(highlights.into_iter().map(|i| i.into()));
         self
     }
+
+    /// Set the byte range in the original file for this context
+    #[must_use]
+    pub fn byte_range(self, range: Range<usize>) -> Self {
+        Self {
+            byte_range: Some(range),
+            ..self
+        }
+    }
 }
 
 /// Functionality
@@ -329,6 +372,11 @@ impl<'text> Context<'text> {
         &self.highlights
     }
 
+    /// Get the byte range
+    pub fn get_byte_range(&self) -> Option<Range<usize>> {
+        self.byte_range.clone()
+    }
+
     /// (Possibly) clone the text to get a static valid Context
     pub fn to_owned(self) -> Context<'static> {
         Context {
@@ -341,7 +389,10 @@ impl<'text> Context<'text> {
 
     /// Check if this is an empty context
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty() && self.source.is_none() && self.line_number.is_none()
+        self.lines.is_empty()
+            && self.source.is_none()
+            && self.line_number.is_none()
+            && self.byte_range.is_none()
     }
 
     /// Get the margin needed for the line number (if present)
@@ -381,6 +432,7 @@ impl<'text> Context<'text> {
             pub const ELLIPSIS: char = '…';
             pub const LENGTH_ZERO_HIGHLIGHT: char = 'ò';
             pub const LENGTH_ONE_HIGHLIGHT: char = '⁃';
+            pub const RANGE_INDICATION: char = '—';
         }
         #[cfg(feature = "ascii-only")]
         mod symbols {
@@ -396,50 +448,34 @@ impl<'text> Context<'text> {
             pub const ELLIPSIS: char = '~';
             pub const LENGTH_ZERO_HIGHLIGHT: char = '^';
             pub const LENGTH_ONE_HIGHLIGHT: char = '-';
+            pub const RANGE_INDICATION: char = '-';
         }
         use symbols::*;
 
         if self.is_empty() {
             Ok(())
         } else if self.lines.is_empty() {
-            write!(
-                f,
-                "[{}{}{}]",
-                self.source.as_deref().unwrap_or_default(),
-                self.line_number
-                    .map(|i| format!(":{i}"))
-                    .unwrap_or_default(),
-                self.highlights
-                    .first()
-                    .filter(|h| h.line == 0
-                        && self.highlights.len() == 1
-                        && self.line_number.is_some())
-                    .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                    .unwrap_or_default()
-            )
+            if self.source.is_some() || self.line_number.is_some() {
+                self.display_source(f)?;
+            }
+            self.display_byte_range::<RANGE_INDICATION>(f)?;
+            Ok(())
         } else {
             let margin = merged.margin().unwrap_or_else(|| self.margin());
             let max_cols: usize = 100 - margin - 3;
 
             if merged.leading_decoration() {
-                if let Some(source) = &self.source {
+                if self.source.is_some() || self.byte_range.is_some() {
                     write!(
                         f,
-                        "{} {}{source}{}{}{}",
+                        "{} {}",
                         " ".repeat(margin),
-                        format!("{ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}[").blue(),
-                        self.line_number
-                            .map(|i| format!(":{i}"))
-                            .unwrap_or_default(),
-                        self.highlights
-                            .first()
-                            .filter(|h| h.line == 0
-                                && self.highlights.len() == 1
-                                && self.line_number.is_some())
-                            .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                            .unwrap_or_default(),
-                        ']'.blue(),
+                        format!("{ARC_BOTTOM_TO_RIGHT}{LEFT_TO_RIGHT}").blue(),
                     )?;
+                    if self.source.is_some() {
+                        self.display_source(f)?;
+                    }
+                    self.display_byte_range::<RANGE_INDICATION>(f)?;
                 } else {
                     write!(f, "{} {}", " ".repeat(margin), TOP_ENDCAP.blue())?;
                 }
@@ -670,6 +706,43 @@ impl<'text> Context<'text> {
         }
     }
 
+    fn display_source(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}{}",
+            "[".blue(),
+            self.source.as_deref().unwrap_or_default(),
+            self.line_number
+                .map(|i| format!(":{i}"))
+                .unwrap_or_default(),
+            self.highlights
+                .first()
+                .filter(|h| h.line == 0 && self.highlights.len() == 1 && self.line_number.is_some())
+                .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
+                .unwrap_or_default(),
+            ']'.blue(),
+        )
+    }
+
+    fn display_byte_range<const RANGE_INDICATION: char>(
+        &self,
+        f: &mut impl fmt::Write,
+    ) -> fmt::Result {
+        if let Some(r) = &self.byte_range {
+            write!(
+                f,
+                "{}B:{}{}{}{}",
+                "[".green(),
+                r.start,
+                RANGE_INDICATION,
+                r.end,
+                "]".green()
+            )
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn display_html(&self, f: &mut impl fmt::Write, allow_trim: bool) -> fmt::Result {
         if self.is_empty() {
             Ok(())
@@ -700,17 +773,20 @@ impl<'text> Context<'text> {
                 html_escape(f, source)?;
                 write!(
                     f,
-                    "{}{}</span>",
-                    self.line_number
-                        .map(|i| format!(":{i}"))
-                        .unwrap_or_default(),
+                    "{}{}{}</span>",
+                    self.line_number.map_or(String::new(), |i| format!(":{i}")),
                     self.highlights
                         .first()
                         .filter(|h| h.line == 0
                             && self.highlights.len() == 1
                             && self.line_number.is_some())
-                        .map(|h| format!(":{}", self.first_line_offset as usize + h.offset + 1))
-                        .unwrap_or_default()
+                        .map_or(String::new(), |h| format!(
+                            ":{}",
+                            self.first_line_offset as usize + h.offset + 1
+                        )),
+                    self.byte_range
+                        .as_ref()
+                        .map_or(String::new(), |r| format!("[B:{}—{}]", r.start, r.end))
                 )?;
             }
             for (index, line) in self.lines.lines().enumerate() {
