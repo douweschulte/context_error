@@ -271,7 +271,6 @@ where
             .add_underlying_errors(
                 self.get_underlying_errors()
                     .iter()
-                    .cloned()
                     .map(|e| e.convert::<NewKind, New>(convert)),
             )
     }

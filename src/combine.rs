@@ -25,7 +25,7 @@ pub fn combine_errors<'a, E: CreateError<'a, Kind>, Kind: ErrorKind>(
 }
 
 /// An iterator adapter that keeps track separately of the errors to merge ones that can be merged.
-/// The errors have to be retrieved separately using [`Self::errors`].
+/// The errors have to be retrieved separately using [`CombineErrors::errors`].
 pub trait CombineErrorsExtender<Iter, T, E, Kind>
 where
     Iter: Iterator<Item = Result<T, E>>,
