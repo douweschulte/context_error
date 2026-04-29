@@ -60,11 +60,13 @@ impl<'text> PartialOrd for Context<'text> {
 /// Convenience wrappers using common patterns
 impl<'text> Context<'text> {
     /// Creates a new context when no context can be given (identical to [Self::default])
+    #[deprecated(since = "0.3.0", note = "use Self::default")]
     pub fn none() -> Self {
         Self::default()
     }
 
     /// Creates a new context when only a line (eg filename) can be shown
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn show(line: impl Into<Cow<'text, str>>) -> Self {
         Self {
             source: None,
@@ -77,6 +79,7 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context when a full line is faulty and no special position can be annotated
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn full_line(line_index: u32, line: impl Into<Cow<'text, str>>) -> Self {
         Self {
             source: None,
@@ -89,6 +92,7 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context when a special position can be annotated on a line
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn line(
         line_index: Option<u32>,
         line: impl Into<Cow<'text, str>>,
@@ -111,6 +115,7 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context when a special position can be annotated on a line
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn line_with_comment(
         line_index: Option<u32>,
         line: impl Into<Cow<'text, str>>,
@@ -134,6 +139,7 @@ impl<'text> Context<'text> {
     }
 
     /// Create a context highlighting a certain range on a single line
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn line_range(
         line_index: Option<u32>,
         line: &'text str,
@@ -143,6 +149,7 @@ impl<'text> Context<'text> {
     }
 
     /// Create a context highlighting a certain range on a single line
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn line_range_with_comment(
         line_index: Option<u32>,
         line: &'text str,
@@ -176,6 +183,7 @@ impl<'text> Context<'text> {
     }
 
     /// Create a context with multiple highlights
+    #[deprecated(since = "0.3.0", note = "use builder methods")]
     pub fn multiple_highlights(
         line_index: Option<u32>,
         lines: &'text str,
@@ -223,8 +231,14 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context to highlight a certain position
-    #[allow(clippy::unwrap_used, clippy::missing_panics_doc)]
+    #[deprecated(since = "0.3.0", note = "renamed to 'from_position'")]
     pub fn position(pos: &FilePosition<'_>) -> Self {
+        Self::from_position(pos)
+    }
+
+    /// Creates a new context to highlight a certain position
+    #[allow(clippy::unwrap_used, clippy::missing_panics_doc)]
+    pub fn from_position(pos: &FilePosition<'_>) -> Self {
         if pos.text.is_empty() {
             Self {
                 source: None,
@@ -257,7 +271,13 @@ impl<'text> Context<'text> {
     }
 
     /// Creates a new context from a start and end point within a single file
+    #[deprecated(since = "0.3.0", note = "renamed to 'from_range'")]
     pub fn range(start: &FilePosition<'text>, end: &FilePosition<'text>) -> Self {
+        Self::from_range(start, end)
+    }
+
+    /// Creates a new context from a start and end point within a single file
+    pub fn from_range(start: &FilePosition<'text>, end: &FilePosition<'text>) -> Self {
         if start.line_index == end.line_index {
             Self {
                 source: None,
@@ -970,29 +990,29 @@ mod tests {
         };
     }
 
-    test!(empty: Context::none() => "");
+    test!(empty: Context::default() => "");
     test!(empty_source: Context::default().source("file.txt") => "[file.txt]");
     test!(empty_line: Context::default().line_index(12) => "[:13]");
     test!(empty_line_offset: Context::default().line_index(12).add_highlight((0, 12, 3)) => "[:13:13]");
     test!(empty_source_line_offset: Context::default().source("file.txt").line_index(12).add_highlight((0, 12, 3)) => "[file.txt:13:13]");
     test!(empty_source_offset: Context::default().source("file.txt").add_highlight((0, 12, 3)) => "[file.txt]");
-    test!(show: Context::show("Hello world") => " ╷\n │ Hello world\n ╵");
-    test!(show_characters: Context::show("Hello world cr\r tab\t null\0") => " ╷\n │ Hello world cr␍ tab␉ null␀\n ╵");
-    test!(full_line_1: Context::full_line(0, "A[deamidation]").add_highlight((0, 2..)) 
+    test!(show: Context::default().lines(0, "Hello world") => " ╷\n │ Hello world\n ╵");
+    test!(show_characters: Context::default().lines(0, "Hello world cr\r tab\t null\0") => " ╷\n │ Hello world cr␍ tab␉ null␀\n ╵");
+    test!(full_line_1: Context::default().line_index(0).lines(0, "A[deamidation]").add_highlight((0, 2..)) 
         => "  ╷\n1 │ A[deamidation]\n  ╎   ╶──────────╴\n  ╵");
-    test!(full_line: Context::full_line(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
+    test!(full_line: Context::default().line_index(0).lines(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]") 
         => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╵");
-    test!(line: Context::line(Some(0), "#[derive(Clone, Copy, Debug, Eq, PartialEq)]", 16, 4) 
+    test!(line: Context::default().line_index(0).lines(0, "#[derive(Clone, Copy, Debug, Eq, PartialEq)]").add_highlight((0, 16, 4)) 
         => "  ╷\n1 │ #[derive(Clone, Copy, Debug, Eq, PartialEq)]\n  ╎                 ╶──╴\n  ╵");
-    test!(line_range: Context::line_range(Some(0), "\tpub column; usize,", 11..13) 
+    test!(line_range: Context::default().line_index(0).lines(0, "\tpub column; usize,",).add_highlight((0, 11..13))  
         => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃\n  ╵");
-    test!(line_range_comment: Context::line_range_with_comment(Some(0), "\tpub column; usize,", 11..13, Some(Cow::Borrowed("Use colon instead"))) 
+    test!(line_range_comment: Context::default().line_index(0).lines(0, "\tpub column; usize,").add_highlight((0, 11..13, Cow::Borrowed("Use colon instead")))
         => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃Use colon instead\n  ╵");
-    test!(line_comment: Context::line_with_comment(Some(0), "\tpub column; usize,", 11, 1, Some(Cow::Borrowed("Use colon instead"))) 
+    test!(line_comment: Context::default().line_index(0).lines(0, "\tpub column; usize,").add_highlight((0, 11, 1, Cow::Borrowed("Use colon instead"))) 
         => "  ╷\n1 │ ␉pub column; usize,\n  ╎            ⁃Use colon instead\n  ╵");
-    test!(single_line_multiple_highlights: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, None), (0, 4..=8, None), (0, 9..=13, None)]) 
+    test!(single_line_multiple_highlights: Context::default().line_index(0).lines(0, "0,3\tnull\tmany\t0.0001").add_highlights([(0, 0..=3), (0, 4..=8), (0, 9..=13)]) 
         => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ╶─╴ ╶──╴ ╶──╴\n  ╵");
-    test!(single_line_multiple_highlights_comments: Context::multiple_highlights(Some(0), "0,3\tnull\tmany\t0.0001", [(0, 0..=3, Some(Cow::Borrowed("Score"))), (0, 4..=8, Some(Cow::Borrowed("RT"))), (0, 9..=13, Some(Cow::Borrowed("Method")))]) 
+    test!(single_line_multiple_highlights_comments: Context::default().line_index(0).lines(0, "0,3\tnull\tmany\t0.0001").add_highlights([(0, 0..=3, Cow::Borrowed("Score")), (0, 4..=8, Cow::Borrowed("RT")), (0, 9..=13, Cow::Borrowed("Method"))]) 
         => "  ╷\n1 │ 0,3␉null␉many␉0.0001\n  ╎ ╶─╴Score\n  ╎     ╶──╴RT\n  ╎          ╶──╴Method\n  ╵");
     test!(builder: Context::default().lines(0, "Hello world").add_highlight((0, 1, 2)).add_highlight((0, 6.., "Rest")) 
         => " ╷\n │ Hello world\n ╎  ╶╴   ╶───╴Rest\n ╵");
